@@ -21,18 +21,11 @@ struct StreamReadyView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 10) {
-                        let duplicateTitles = Set(
-                            Dictionary(grouping: service.simulators, by: \.title)
-                                .filter { $0.value.count > 1 }
-                                .keys
-                        )
                         ForEach(service.simulators) { simulator in
                             let isStreaming = streamingIds.contains(simulator.id)
-                            let showOSVersion = simulator.isAmbiguous || duplicateTitles.contains(simulator.title)
                             SimulatorRow(
                                 simulator: simulator,
                                 isStreaming: isStreaming,
-                                showOSVersion: showOSVersion,
                                 onPlay: { streamingIds.insert(simulator.id) },
                                 onStop: { streamingIds.remove(simulator.id) }
                             )
@@ -93,7 +86,6 @@ private enum PreviewMode: Equatable { case screenshot, stream }
 struct SimulatorRow: View {
     let simulator: Simulator
     let isStreaming: Bool
-    let showOSVersion: Bool
     let onPlay: () -> Void
     let onStop: () -> Void
 
@@ -107,6 +99,10 @@ struct SimulatorRow: View {
             // Column 1: title + streaming badge, then buttons below
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
+                    Image(systemName: simulator.systemImage)
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+
                     Text(simulator.title)
                         .font(.title2)
                         .fontWeight(.bold)
@@ -117,11 +113,18 @@ struct SimulatorRow: View {
                     }
                 }
 
-                if showOSVersion, let osVersion = simulator.osVersion {
-                    Text(osVersion)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    if let osVersion = simulator.osVersion {
+                        Text(osVersion)
+                    }
+                    if let udid = simulator.udid {
+                        Text("·")
+                        Text(String(udid.prefix(8)).uppercased())
+                            .fontDesign(.monospaced)
+                    }
                 }
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
                 HStack(spacing: 4) {
                     // Play
