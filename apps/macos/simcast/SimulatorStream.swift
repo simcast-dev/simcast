@@ -11,12 +11,27 @@ final class SimulatorStream: NSObject, SCStreamOutput, SCStreamDelegate {
     private let outputQueue = DispatchQueue(label: "com.simcast.stream.output", qos: .userInteractive)
 
     func start(window: SCWindow) async {
-        let filter = SCContentFilter(desktopIndependentWindow: window)
+        guard
+            let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true),
+            let display = content.displays.first(where: {
+                $0.frame.contains(CGPoint(x: window.frame.midX, y: window.frame.midY))
+            }) ?? content.displays.first
+        else { return }
+
+        let simulatorApps = content.applications.filter { $0.bundleIdentifier == "com.apple.iphonesimulator" }
+        let filter = SCContentFilter(display: display, including: simulatorApps, exceptingWindows: [])
 
         let config = SCStreamConfiguration()
+        config.sourceRect = CGRect(
+            x: window.frame.minX - display.frame.minX,
+            y: window.frame.minY - display.frame.minY,
+            width: window.frame.width,
+            height: window.frame.height
+        )
         config.width = Int(window.frame.width)
         config.height = Int(window.frame.height)
         config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
+        config.showsCursor = false
 
         do {
             stream = SCStream(filter: filter, configuration: config, delegate: self)
