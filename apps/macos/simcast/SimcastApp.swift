@@ -13,5 +13,6 @@ struct SimcastApp: App {
         WindowGroup {
             ContentView()
         }
+        .windowResizability(.contentSize)
     }
 }

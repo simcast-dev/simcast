@@ -1,21 +1,19 @@
-//
-//  ContentView.swift
-//  simcast
-//
-//  Created by Ioan-Florin Matincă on 03.03.2026.
-//
-
+import CoreGraphics
 import SwiftUI
 
 struct ContentView: View {
+    @State private var permission = ScreenCapturePermission()
+
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+        ZStack {
+            switch permission.status {
+            case .granted:
+                StreamReadyView()
+            case .undetermined, .denied:
+                PermissionRequestView(permission: permission)
+            }
         }
-        .padding()
+        .frame(width: 540, height: 740)
     }
 }
 
