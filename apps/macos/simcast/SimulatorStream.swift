@@ -56,7 +56,7 @@ final class SimulatorStream: NSObject, SCStreamOutput, SCStreamDelegate {
         trackedWindowID = nil
         try? await stream?.stopCapture()
         stream = nil
-        displayLayer.flush()
+        displayLayer.sampleBufferRenderer.flush()
     }
 
     private func startTracking() {
@@ -86,8 +86,9 @@ final class SimulatorStream: NSObject, SCStreamOutput, SCStreamDelegate {
 
     nonisolated func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .screen, sampleBuffer.isValid else { return }
-        if displayLayer.status == .failed { displayLayer.flush() }
-        displayLayer.enqueue(sampleBuffer)
+        let renderer = displayLayer.sampleBufferRenderer
+        if renderer.status == .failed { renderer.flush() }
+        renderer.enqueue(sampleBuffer)
     }
 
     nonisolated func stream(_ stream: SCStream, didStopWithError error: Error) {}
