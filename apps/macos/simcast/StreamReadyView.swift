@@ -3,7 +3,7 @@ import ScreenCaptureKit
 
 struct StreamReadyView: View {
     @State private var service = SimulatorService()
-    @State private var streamingIds: Set<CGWindowID> = []
+    @State private var streamingIds: Set<String> = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,11 +21,18 @@ struct StreamReadyView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 10) {
+                        let duplicateTitles = Set(
+                            Dictionary(grouping: service.simulators, by: \.title)
+                                .filter { $0.value.count > 1 }
+                                .keys
+                        )
                         ForEach(service.simulators) { simulator in
                             let isStreaming = streamingIds.contains(simulator.id)
+                            let showOSVersion = simulator.isAmbiguous || duplicateTitles.contains(simulator.title)
                             SimulatorRow(
                                 simulator: simulator,
                                 isStreaming: isStreaming,
+                                showOSVersion: showOSVersion,
                                 onPlay: { streamingIds.insert(simulator.id) },
                                 onStop: { streamingIds.remove(simulator.id) }
                             )
@@ -86,6 +93,7 @@ private enum PreviewMode: Equatable { case screenshot, stream }
 struct SimulatorRow: View {
     let simulator: Simulator
     let isStreaming: Bool
+    let showOSVersion: Bool
     let onPlay: () -> Void
     let onStop: () -> Void
 
@@ -107,6 +115,12 @@ struct SimulatorRow: View {
                         StreamingBadge()
                             .transition(.opacity.combined(with: .move(edge: .leading)))
                     }
+                }
+
+                if showOSVersion, let osVersion = simulator.osVersion {
+                    Text(osVersion)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 HStack(spacing: 4) {
@@ -203,7 +217,7 @@ struct SimulatorRow: View {
         guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true) else { return }
 
         // Re-fetch the window from fresh content so its frame reflects the current position
-        let window = content.windows.first(where: { $0.windowID == simulator.id }) ?? simulator.window
+        let window = content.windows.first(where: { $0.windowID == simulator.window.windowID }) ?? simulator.window
         let windowFrame = window.frame
         let windowCenter = CGPoint(x: windowFrame.midX, y: windowFrame.midY)
 

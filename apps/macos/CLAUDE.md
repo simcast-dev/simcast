@@ -20,6 +20,22 @@ Captures iOS Simulator windows, encodes to H.264, streams via LiveKit. Handles r
 - **Hardened Runtime** enabled (required for notarization)
 - Entitlements: `com.apple.security.screen-capture`, `com.apple.security.accessibility`, outgoing + incoming network connections
 
+## Build Verification
+
+After completing any code change, build the app and check for errors:
+
+```bash
+xcodebuild -project apps/macos/simcast.xcodeproj \
+  -scheme simcast \
+  -configuration Debug \
+  build \
+  2>&1 | grep -E "error:|BUILD SUCCEEDED|BUILD FAILED"
+```
+
+Run this from the repo root. Fix all `error:` lines before considering the task done. Warnings are acceptable.
+
+If XcodeBuildMCP macOS workflows are enabled (requires `.xcodebuildmcp/config.yaml`), prefer those tools over the Bash command.
+
 ## Documentation Rules
 
 - SwiftUI patterns handled by SwiftUI Agent Skill
