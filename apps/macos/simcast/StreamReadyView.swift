@@ -61,6 +61,7 @@ struct StreamReadyView: View {
 
 struct StreamReadyHeader: View {
     let isEmpty: Bool
+    @State private var showingSettings = false
 
     var body: some View {
         HStack {
@@ -76,8 +77,46 @@ struct StreamReadyHeader: View {
                     .controlSize(.small)
                     .transition(.opacity)
             }
+
+            Button {
+                showingSettings.toggle()
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .popover(isPresented: $showingSettings, arrowEdge: .bottom) {
+                StreamSettingsPopover()
+            }
         }
         .animation(.easeInOut(duration: 0.2), value: isEmpty)
+    }
+}
+
+private struct StreamSettingsPopover: View {
+    @AppStorage("liveKitUrl") private var url = ""
+    @AppStorage("liveKitToken") private var token = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("LiveKit Settings")
+                .font(.headline)
+
+            LabeledContent("Server URL") {
+                TextField("wss://project.livekit.cloud", text: $url)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 280)
+            }
+
+            LabeledContent("Token") {
+                TextField("eyJ…", text: $token)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 280)
+            }
+        }
+        .padding(16)
+        .frame(minWidth: 400)
     }
 }
 
@@ -90,8 +129,9 @@ struct SimulatorRow: View {
     let onStop: () -> Void
 
     @State private var thumbnail: NSImage?
-    @State private var previewMode: PreviewMode = .screenshot
+    @State private var previewMode: PreviewMode = .stream
     @State private var liveStream: SimulatorStream?
+    @State private var liveKitManager = LiveKitManager()
 
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
@@ -130,8 +170,14 @@ struct SimulatorRow: View {
                     // Play
                     Button(action: {
                         onPlay()
-                        previewMode = .screenshot
-                        Task { await captureSnapshot() }
+                        previewMode = .stream
+                        let stream = SimulatorStream()
+                        stream.bufferCapturer = liveKitManager.prepareTrack()
+                        liveStream = stream
+                        Task {
+                            await stream.start(window: simulator.window)
+                            try? await liveKitManager.connectAndPublish()
+                        }
                     }) {
                         Image(systemName: "play.circle.fill")
                             .font(.title)
@@ -144,8 +190,12 @@ struct SimulatorRow: View {
                     Button(action: {
                         onStop()
                         thumbnail = nil
-                        previewMode = .screenshot
-                        Task { await liveStream?.stop(); liveStream = nil }
+                        previewMode = .stream
+                        Task {
+                            await liveStream?.stop()
+                            liveStream = nil
+                            await liveKitManager.stop()
+                        }
                     }) {
                         Image(systemName: "stop.circle.fill")
                             .font(.title)
@@ -161,7 +211,7 @@ struct SimulatorRow: View {
                         Button(action: {
                             guard previewMode != .screenshot else { return }
                             previewMode = .screenshot
-                            Task { await liveStream?.stop(); liveStream = nil; await captureSnapshot() }
+                            Task { await captureSnapshot() }
                         }) {
                             Image(systemName: previewMode == .screenshot ? "camera.fill" : "camera")
                                 .font(.title)
@@ -173,9 +223,6 @@ struct SimulatorRow: View {
                             guard previewMode != .stream else { return }
                             previewMode = .stream
                             thumbnail = nil
-                            let stream = SimulatorStream()
-                            liveStream = stream
-                            Task { await stream.start(window: simulator.window) }
                         }) {
                             Image(systemName: previewMode == .stream ? "video.fill" : "video")
                                 .font(.title)

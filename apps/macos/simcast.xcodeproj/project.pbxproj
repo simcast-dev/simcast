@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		4D73D3042F57968900C12E80 /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4D73D3032F57968900C12E80 /* LiveKit */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		4D903AB42F56F150004598AB /* SimCast.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SimCast.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4DB720262F56F9D700F6867E /* simcast.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = simcast.entitlements; sourceTree = "<group>"; };
@@ -24,6 +28,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4D73D3042F57968900C12E80 /* LiveKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -67,6 +72,7 @@
 			);
 			name = simcast;
 			packageProductDependencies = (
+				4D73D3032F57968900C12E80 /* LiveKit */,
 			);
 			productName = simcast;
 			productReference = 4D903AB42F56F150004598AB /* SimCast.app */;
@@ -96,6 +102,9 @@
 			);
 			mainGroup = 4D903AAB2F56F150004598AB;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				4D73D3022F57968900C12E80 /* XCRemoteSwiftPackageReference "client-sdk-swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 4D903AB52F56F150004598AB /* Products */;
 			projectDirPath = "";
@@ -353,6 +362,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		4D73D3022F57968900C12E80 /* XCRemoteSwiftPackageReference "client-sdk-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/livekit/client-sdk-swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.12.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		4D73D3032F57968900C12E80 /* LiveKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4D73D3022F57968900C12E80 /* XCRemoteSwiftPackageReference "client-sdk-swift" */;
+			productName = LiveKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 4D903AAC2F56F150004598AB /* Project object */;
 }

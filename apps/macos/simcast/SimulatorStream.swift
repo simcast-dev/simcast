@@ -1,11 +1,15 @@
 import ScreenCaptureKit
 import AVFoundation
 import CoreMedia
+import LiveKit
 
 @MainActor
 final class SimulatorStream: NSObject, SCStreamOutput, SCStreamDelegate {
 
     nonisolated(unsafe) let displayLayer = AVSampleBufferDisplayLayer()
+
+    // Set by LiveKitManager before stream starts; receives every SCKit frame for WebRTC encoding.
+    nonisolated(unsafe) var bufferCapturer: BufferCapturer?
 
     // Read from layout() on main thread; written from @MainActor — safe without locks.
     nonisolated(unsafe) var windowFrame: CGRect = .zero
@@ -89,6 +93,7 @@ final class SimulatorStream: NSObject, SCStreamOutput, SCStreamDelegate {
         let renderer = displayLayer.sampleBufferRenderer
         if renderer.status == .failed { renderer.flush() }
         renderer.enqueue(sampleBuffer)
+        bufferCapturer?.capture(sampleBuffer)
     }
 
     nonisolated func stream(_ stream: SCStream, didStopWithError error: Error) {}
