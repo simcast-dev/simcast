@@ -1,44 +1,61 @@
 import SwiftUI
 
 struct StreamReadyView: View {
-    @State private var simulators: [Simulator] = Simulator.mocks
-    @State private var streamingIds: Set<String> = []
+    @State private var service = SimulatorService()
+    @State private var streamingIds: Set<CGWindowID> = []
 
     var body: some View {
         VStack(spacing: 0) {
-            StreamReadyHeader(onRefresh: {})
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
+            StreamReadyHeader(isLoading: service.isLoading, onRefresh: {
+                Task { await service.refresh() }
+            })
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
 
-            ScrollView {
-                LazyVStack(spacing: 10) {
-                    ForEach(simulators) { simulator in
-                        let isStreaming = streamingIds.contains(simulator.id)
-                        SimulatorRow(
-                            simulator: simulator,
-                            isStreaming: isStreaming,
-                            onPlay: { streamingIds.insert(simulator.id) },
-                            onStop: { streamingIds.remove(simulator.id) }
-                        )
-                        .padding(.vertical, 10)
-                        .padding(.horizontal, 14)
-                        .background(
-                            isStreaming ? Color.green.opacity(0.06) : Color(NSColor.textBackgroundColor),
-                            in: RoundedRectangle(cornerRadius: 14)
-                        )
-                        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isStreaming)
+            Group {
+                if service.isLoading && service.simulators.isEmpty {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if service.simulators.isEmpty {
+                    ContentUnavailableView(
+                        "No Simulators Found",
+                        systemImage: "iphone.slash",
+                        description: Text("Open a simulator in Xcode to see it here.")
+                    )
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 10) {
+                            ForEach(service.simulators) { simulator in
+                                let isStreaming = streamingIds.contains(simulator.id)
+                                SimulatorRow(
+                                    simulator: simulator,
+                                    isStreaming: isStreaming,
+                                    onPlay: { streamingIds.insert(simulator.id) },
+                                    onStop: { streamingIds.remove(simulator.id) }
+                                )
+                                .padding(.vertical, 10)
+                                .padding(.horizontal, 14)
+                                .background(
+                                    isStreaming ? Color.green.opacity(0.06) : Color(NSColor.textBackgroundColor),
+                                    in: RoundedRectangle(cornerRadius: 14)
+                                )
+                                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isStreaming)
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 5)
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(white: 0.93))
+        .task { await service.refresh() }
     }
 }
 
 struct StreamReadyHeader: View {
+    let isLoading: Bool
     let onRefresh: () -> Void
 
     var body: some View {
@@ -51,9 +68,11 @@ struct StreamReadyHeader: View {
 
             Button(action: onRefresh) {
                 Image(systemName: "arrow.clockwise")
+                    .symbolEffect(.rotate, options: .repeating, isActive: isLoading)
             }
             .buttonStyle(.bordered)
             .controlSize(.regular)
+            .disabled(isLoading)
         }
     }
 }
@@ -74,11 +93,13 @@ struct SimulatorRow: View {
                     .frame(width: 44, alignment: .center)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(simulator.name)
+                    Text(simulator.deviceName)
                         .fontWeight(.bold)
-                    Text(simulator.osVersion)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    if let osVersion = simulator.osVersion {
+                        Text(osVersion)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Spacer(minLength: 0)
