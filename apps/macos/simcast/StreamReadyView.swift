@@ -81,6 +81,8 @@ struct StreamReadyHeader: View {
     }
 }
 
+private enum PreviewMode: Equatable { case screenshot, stream }
+
 struct SimulatorRow: View {
     let simulator: Simulator
     let isStreaming: Bool
@@ -88,11 +90,13 @@ struct SimulatorRow: View {
     let onStop: () -> Void
 
     @State private var thumbnail: NSImage?
+    @State private var previewMode: PreviewMode = .screenshot
+    @State private var liveStream: SimulatorStream?
 
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
 
-            // Column 1: title + streaming badge, then play + stop below
+            // Column 1: title + streaming badge, then buttons below
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     Text(simulator.title)
@@ -106,8 +110,10 @@ struct SimulatorRow: View {
                 }
 
                 HStack(spacing: 4) {
+                    // Play
                     Button(action: {
                         onPlay()
+                        previewMode = .screenshot
                         Task { await captureSnapshot() }
                     }) {
                         Image(systemName: "play.circle.fill")
@@ -117,9 +123,12 @@ struct SimulatorRow: View {
                     .buttonStyle(.borderless)
                     .disabled(isStreaming)
 
+                    // Stop
                     Button(action: {
                         onStop()
                         thumbnail = nil
+                        previewMode = .screenshot
+                        Task { await liveStream?.stop(); liveStream = nil }
                     }) {
                         Image(systemName: "stop.circle.fill")
                             .font(.title)
@@ -127,31 +136,75 @@ struct SimulatorRow: View {
                     }
                     .buttonStyle(.borderless)
                     .disabled(!isStreaming)
+
+                    // Mode toggle — only visible while streaming
+                    if isStreaming {
+                        Divider().frame(height: 20).padding(.horizontal, 6)
+
+                        Button(action: {
+                            guard previewMode != .screenshot else { return }
+                            previewMode = .screenshot
+                            Task { await liveStream?.stop(); liveStream = nil; await captureSnapshot() }
+                        }) {
+                            Image(systemName: previewMode == .screenshot ? "camera.fill" : "camera")
+                                .font(.title)
+                                .foregroundStyle(previewMode == .screenshot ? .primary : .secondary)
+                        }
+                        .buttonStyle(.borderless)
+
+                        Button(action: {
+                            guard previewMode != .stream else { return }
+                            previewMode = .stream
+                            thumbnail = nil
+                            let stream = SimulatorStream()
+                            liveStream = stream
+                            Task { await stream.start(window: simulator.window) }
+                        }) {
+                            Image(systemName: previewMode == .stream ? "video.fill" : "video")
+                                .font(.title)
+                                .foregroundStyle(previewMode == .stream ? .primary : .secondary)
+                        }
+                        .buttonStyle(.borderless)
+                    }
                 }
 
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Column 3: simulator screenshot
-            if let thumbnail {
-                Image(nsImage: thumbnail)
-                    .resizable()
-                    .aspectRatio(thumbnail.size.width / thumbnail.size.height, contentMode: .fit)
-                    .frame(maxHeight: 200)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+            // Column 2: persistent container — size is fixed once streaming starts to avoid resize glitch
+            if isStreaming {
+                ZStack {
+                    Color.green.opacity(0.06)
+                    if previewMode == .screenshot, let thumbnail {
+                        Image(nsImage: thumbnail)
+                            .resizable()
+                            .scaledToFill()
+                            .transition(.opacity)
+                    }
+                    if previewMode == .stream, let liveStream {
+                        SampleBufferView(stream: liveStream)
+                            .transition(.opacity)
+                    }
+                }
+                .aspectRatio(simulator.window.frame.width / simulator.window.frame.height, contentMode: .fit)
+                .frame(maxHeight: 200)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .animation(.easeInOut(duration: 0.2), value: previewMode)
+                .animation(.easeInOut(duration: 0.2), value: thumbnail != nil)
             }
         }
         .frame(maxWidth: .infinity)
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isStreaming)
-        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: thumbnail != nil)
+        .animation(.easeInOut(duration: 0.2), value: previewMode)
     }
 
     private func captureSnapshot() async {
         guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true) else { return }
 
-        let windowFrame = simulator.window.frame
+        // Re-fetch the window from fresh content so its frame reflects the current position
+        let window = content.windows.first(where: { $0.windowID == simulator.id }) ?? simulator.window
+        let windowFrame = window.frame
         let windowCenter = CGPoint(x: windowFrame.midX, y: windowFrame.midY)
 
         guard let display = content.displays.first(where: { $0.frame.contains(windowCenter) }) ?? content.displays.first else { return }
