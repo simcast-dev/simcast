@@ -40,6 +40,7 @@ struct PermissionRequestHeader: View {
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -77,37 +78,19 @@ struct PermissionRequestCTA: View {
     let permission: ScreenCapturePermission
 
     var body: some View {
-        if permission.status == .denied {
-            VStack(spacing: 12) {
-                Label {
-                    Text("Access was denied. Enable Screen Recording in System Settings → Privacy & Security.")
-                } icon: {
-                    Image(systemName: "exclamationmark.triangle")
-                }
-                .font(.callout)
-                .foregroundStyle(.secondary)
+        VStack(spacing: 8) {
+            Button("Grant Screen Recording Access") {
+                permission.request()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .keyboardShortcut(.defaultAction)
+
+            Text("macOS will ask you to confirm\nscreen recording access.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
-
-                Button("Open System Settings") {
-                    permission.openSystemSettings()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .keyboardShortcut(.defaultAction)
-            }
-        } else {
-            VStack(spacing: 8) {
-                Button("Grant Screen Recording Access") {
-                    permission.request()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .keyboardShortcut(.defaultAction)
-
-                Text("You can revoke this at any time in System Settings.")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
