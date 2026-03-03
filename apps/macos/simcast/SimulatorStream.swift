@@ -7,11 +7,14 @@ final class SimulatorStream: NSObject, SCStreamOutput, SCStreamDelegate {
 
     nonisolated(unsafe) let displayLayer = AVSampleBufferDisplayLayer()
 
+    // Read from layout() on main thread; written from @MainActor — safe without locks.
+    nonisolated(unsafe) var windowFrame: CGRect = .zero
+    var onFrameChanged: (() -> Void)?
+
     private var stream: SCStream?
     private let outputQueue = DispatchQueue(label: "com.simcast.stream.output", qos: .userInteractive)
     private var trackerTask: Task<Void, Never>?
     private var trackedWindowID: CGWindowID?
-    private var lastSourceRect: CGRect = .zero
 
     func start(window: SCWindow) async {
         guard
@@ -21,19 +24,27 @@ final class SimulatorStream: NSObject, SCStreamOutput, SCStreamDelegate {
             }) ?? content.displays.first
         else { return }
 
-        let simulatorApps = content.applications.filter { $0.bundleIdentifier == "com.apple.iphonesimulator" }
-        let filter = SCContentFilter(display: display, including: simulatorApps, exceptingWindows: [])
+        // Capture just this window, independent of position and what's in front of it.
+        // This avoids position-lag artifacts when the window moves and renders content
+        // even when the window is partially behind the Dock or other system chrome.
+        let filter = SCContentFilter(desktopIndependentWindow: window)
 
-        let sourceRect = Self.sourceRect(for: window, in: display)
-        let config = streamConfig(sourceRect: sourceRect, size: window.frame.size)
+        windowFrame = window.frame
+
+        let scaleFactor = CGFloat(display.width) / display.frame.width
+        let config = SCStreamConfiguration()
+        config.width = Int(window.frame.width * scaleFactor)
+        config.height = Int(window.frame.height * scaleFactor)
+        config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
+        config.showsCursor = false
 
         do {
             stream = SCStream(filter: filter, configuration: config, delegate: self)
             try stream?.addStreamOutput(self, type: .screen, sampleHandlerQueue: outputQueue)
             try await stream?.startCapture()
             trackedWindowID = window.windowID
-            lastSourceRect = sourceRect
             startTracking()
+            onFrameChanged?()
         } catch {
             stream = nil
         }
@@ -51,46 +62,26 @@ final class SimulatorStream: NSObject, SCStreamOutput, SCStreamDelegate {
     private func startTracking() {
         trackerTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(500))
-                await self?.updateSourceRectIfNeeded()
+                try? await Task.sleep(for: .milliseconds(50))
+                self?.updateWindowFrame()
             }
         }
     }
 
-    private func updateSourceRectIfNeeded() async {
+    // CGWindowListCopyWindowInfo is a lightweight WindowServer query (~0.1ms).
+    // Using it instead of SCShareableContent lets us poll at 50ms without overhead.
+    private func updateWindowFrame() {
+        guard let windowID = trackedWindowID else { return }
         guard
-            let windowID = trackedWindowID,
-            let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true),
-            let window = content.windows.first(where: { $0.windowID == windowID }),
-            let display = content.displays.first(where: {
-                $0.frame.contains(CGPoint(x: window.frame.midX, y: window.frame.midY))
-            }) ?? content.displays.first
+            let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], windowID) as? [[String: Any]],
+            let info = list.first,
+            let boundsDict = info[kCGWindowBounds as String] as? NSDictionary,
+            let newFrame = CGRect(dictionaryRepresentation: boundsDict),
+            newFrame != windowFrame
         else { return }
 
-        let newRect = Self.sourceRect(for: window, in: display)
-        guard newRect != lastSourceRect else { return }
-
-        lastSourceRect = newRect
-        try? await stream?.updateConfiguration(streamConfig(sourceRect: newRect, size: window.frame.size))
-    }
-
-    private func streamConfig(sourceRect: CGRect, size: CGSize) -> SCStreamConfiguration {
-        let config = SCStreamConfiguration()
-        config.sourceRect = sourceRect
-        config.width = Int(size.width)
-        config.height = Int(size.height)
-        config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
-        config.showsCursor = false
-        return config
-    }
-
-    private static func sourceRect(for window: SCWindow, in display: SCDisplay) -> CGRect {
-        CGRect(
-            x: window.frame.minX - display.frame.minX,
-            y: window.frame.minY - display.frame.minY,
-            width: window.frame.width,
-            height: window.frame.height
-        )
+        windowFrame = newFrame
+        onFrameChanged?()
     }
 
     nonisolated func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
