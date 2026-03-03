@@ -1,4 +1,5 @@
 import SwiftUI
+import ScreenCaptureKit
 
 struct StreamReadyView: View {
     @State private var service = SimulatorService()
@@ -86,29 +87,29 @@ struct SimulatorRow: View {
     let onPlay: () -> Void
     let onStop: () -> Void
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center, spacing: 16) {
-                Image(systemName: simulator.deviceType.icon)
-                    .font(.system(size: 36))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(.blue)
-                    .frame(width: 44, alignment: .center)
+    @State private var thumbnail: NSImage?
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(simulator.deviceName)
+    var body: some View {
+        HStack(alignment: .top, spacing: 16) {
+
+            // Column 1: title + streaming badge, then play + stop below
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text(simulator.title)
+                        .font(.title2)
                         .fontWeight(.bold)
-                    if let osVersion = simulator.osVersion {
-                        Text(osVersion)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+
+                    if isStreaming {
+                        StreamingBadge()
+                            .transition(.opacity.combined(with: .move(edge: .leading)))
                     }
                 }
 
-                Spacer(minLength: 0)
-
                 HStack(spacing: 4) {
-                    Button(action: onPlay) {
+                    Button(action: {
+                        onPlay()
+                        Task { await captureSnapshot() }
+                    }) {
                         Image(systemName: "play.circle.fill")
                             .font(.title)
                             .foregroundStyle(isStreaming ? Color.secondary : .green)
@@ -116,7 +117,10 @@ struct SimulatorRow: View {
                     .buttonStyle(.borderless)
                     .disabled(isStreaming)
 
-                    Button(action: onStop) {
+                    Button(action: {
+                        onStop()
+                        thumbnail = nil
+                    }) {
                         Image(systemName: "stop.circle.fill")
                             .font(.title)
                             .foregroundStyle(isStreaming ? .red : Color.secondary)
@@ -124,15 +128,49 @@ struct SimulatorRow: View {
                     .buttonStyle(.borderless)
                     .disabled(!isStreaming)
                 }
-            }
 
-            if isStreaming {
-                StreamingBadge()
-                    .padding(.leading, 60)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Column 3: simulator screenshot
+            if let thumbnail {
+                Image(nsImage: thumbnail)
+                    .resizable()
+                    .aspectRatio(thumbnail.size.width / thumbnail.size.height, contentMode: .fit)
+                    .frame(maxHeight: 200)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
             }
         }
+        .frame(maxWidth: .infinity)
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isStreaming)
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: thumbnail != nil)
+    }
+
+    private func captureSnapshot() async {
+        guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true) else { return }
+
+        let windowFrame = simulator.window.frame
+        let windowCenter = CGPoint(x: windowFrame.midX, y: windowFrame.midY)
+
+        guard let display = content.displays.first(where: { $0.frame.contains(windowCenter) }) ?? content.displays.first else { return }
+
+        let simulatorApps = content.applications.filter { $0.bundleIdentifier == "com.apple.iphonesimulator" }
+        let filter = SCContentFilter(display: display, including: simulatorApps, exceptingWindows: [])
+
+        let config = SCStreamConfiguration()
+        config.sourceRect = CGRect(
+            x: windowFrame.minX - display.frame.minX,
+            y: windowFrame.minY - display.frame.minY,
+            width: windowFrame.width,
+            height: windowFrame.height
+        )
+        config.width = Int(windowFrame.width)
+        config.height = Int(windowFrame.height)
+
+        guard let cgImage = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config) else { return }
+        thumbnail = NSImage(cgImage: cgImage, size: windowFrame.size)
     }
 }
 
