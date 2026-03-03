@@ -6,74 +6,77 @@ struct StreamReadyView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            StreamReadyHeader(isLoading: service.isLoading, onRefresh: {
-                Task { await service.refresh() }
-            })
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
+            StreamReadyHeader(isEmpty: service.simulators.isEmpty)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
 
-            Group {
-                if service.isLoading && service.simulators.isEmpty {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if service.simulators.isEmpty {
-                    ContentUnavailableView(
-                        "No Simulators Found",
-                        systemImage: "iphone.slash",
-                        description: Text("Open a simulator in Xcode to see it here.")
-                    )
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 10) {
-                            ForEach(service.simulators) { simulator in
-                                let isStreaming = streamingIds.contains(simulator.id)
-                                SimulatorRow(
-                                    simulator: simulator,
-                                    isStreaming: isStreaming,
-                                    onPlay: { streamingIds.insert(simulator.id) },
-                                    onStop: { streamingIds.remove(simulator.id) }
-                                )
-                                .padding(.vertical, 10)
-                                .padding(.horizontal, 14)
-                                .background(
-                                    isStreaming ? Color.green.opacity(0.06) : Color(NSColor.textBackgroundColor),
-                                    in: RoundedRectangle(cornerRadius: 14)
-                                )
-                                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isStreaming)
-                            }
+            if service.simulators.isEmpty {
+                ContentUnavailableView(
+                    "No Simulators Found",
+                    systemImage: "iphone.slash",
+                    description: Text("Open a simulator in Xcode to see it here.")
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 10) {
+                        ForEach(service.simulators) { simulator in
+                            let isStreaming = streamingIds.contains(simulator.id)
+                            SimulatorRow(
+                                simulator: simulator,
+                                isStreaming: isStreaming,
+                                onPlay: { streamingIds.insert(simulator.id) },
+                                onStop: { streamingIds.remove(simulator.id) }
+                            )
+                            .padding(.vertical, 10)
+                            .padding(.horizontal, 14)
+                            .background(
+                                isStreaming ? Color.green.opacity(0.06) : Color(NSColor.textBackgroundColor),
+                                in: RoundedRectangle(cornerRadius: 14)
+                            )
+                            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isStreaming)
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 5)
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .animation(.easeInOut(duration: 0.25), value: service.simulators.map(\.id))
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(white: 0.93))
-        .task { await service.refresh() }
+        .task {
+            while !Task.isCancelled {
+                await service.refresh()
+                try? await Task.sleep(for: .seconds(3))
+            }
+        }
+        .onChange(of: service.simulators.map(\.id)) { _, newIds in
+            let active = Set(newIds)
+            streamingIds = streamingIds.filter { active.contains($0) }
+        }
     }
 }
 
 struct StreamReadyHeader: View {
-    let isLoading: Bool
-    let onRefresh: () -> Void
+    let isEmpty: Bool
 
     var body: some View {
-        HStack(alignment: .center) {
-            Text("Available Simulators")
+        HStack {
+            Text(isEmpty ? "Searching for Simulators" : "Available Simulators")
                 .font(.title2)
                 .fontWeight(.bold)
+                .animation(.easeInOut(duration: 0.2), value: isEmpty)
 
             Spacer()
 
-            Button(action: onRefresh) {
-                Image(systemName: "arrow.clockwise")
-                    .symbolEffect(.rotate, options: .repeating, isActive: isLoading)
+            if isEmpty {
+                ProgressView()
+                    .controlSize(.small)
+                    .transition(.opacity)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.regular)
-            .disabled(isLoading)
         }
+        .animation(.easeInOut(duration: 0.2), value: isEmpty)
     }
 }
 
