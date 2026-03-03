@@ -22,7 +22,6 @@ simcast/
 
 ## Git Workflow
 
-- When committing, set the git author to Claude: git commit --author="Claude <noreply@anthropic.com>"
 - Do NOT push to remote unless I explicitly ask
 - Do NOT amend or rebase existing commits unless asked
 
