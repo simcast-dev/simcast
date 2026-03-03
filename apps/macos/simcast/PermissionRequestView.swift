@@ -2,19 +2,21 @@ import SwiftUI
 
 struct PermissionRequestView: View {
     let permission: ScreenCapturePermission
+    @State private var pollingEnabled = false
 
     var body: some View {
         VStack(spacing: 40) {
             PermissionRequestHeader()
             PermissionRequestReasons()
-            PermissionRequestCTA(permission: permission)
+            PermissionRequestCTA(onGrant: { pollingEnabled = true })
         }
         .padding(48)
         .frame(maxWidth: 500)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear { permission.check() }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            permission.check()
+        .onAppear { permission.checkSilently() }
+        .task(id: pollingEnabled) {
+            guard pollingEnabled else { return }
+            await permission.pollUntilGranted()
         }
     }
 }
@@ -75,12 +77,12 @@ struct PermissionRequestReasons: View {
 }
 
 struct PermissionRequestCTA: View {
-    let permission: ScreenCapturePermission
+    let onGrant: () -> Void
 
     var body: some View {
         VStack(spacing: 8) {
             Button("Grant Screen Recording Access") {
-                permission.request()
+                onGrant()
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)

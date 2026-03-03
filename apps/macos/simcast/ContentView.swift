@@ -9,7 +9,7 @@ struct ContentView: View {
             switch permission.status {
             case .granted:
                 StreamReadyView()
-            case .undetermined, .denied:
+            case .undetermined:
                 PermissionRequestView(permission: permission)
             }
         }

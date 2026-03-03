@@ -1,6 +1,6 @@
-import AppKit
 import CoreGraphics
 import Observation
+import ScreenCaptureKit
 
 @Observable
 final class ScreenCapturePermission {
@@ -9,25 +9,29 @@ final class ScreenCapturePermission {
     enum Status {
         case undetermined
         case granted
-        case denied
     }
 
-    func check() {
+    func checkSilently() {
         if CGPreflightScreenCaptureAccess() {
             status = .granted
         }
     }
 
-    func request() {
-        if CGRequestScreenCaptureAccess() {
-            status = .granted
-        } else {
-            status = .denied
+    func pollUntilGranted() async {
+        while !Task.isCancelled {
+            if await canCapture() {
+                status = .granted
+                break
+            }
+            try? await Task.sleep(for: .seconds(1))
         }
     }
 
-    func openSystemSettings() {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") else { return }
-        NSWorkspace.shared.open(url)
+    private func canCapture() async -> Bool {
+        await withCheckedContinuation { continuation in
+            SCShareableContent.getWithCompletionHandler { content, _ in
+                continuation.resume(returning: content != nil)
+            }
+        }
     }
 }
