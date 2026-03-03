@@ -80,8 +80,8 @@ final class SimulatorService {
         let sortedDevices = unmatchedDevices.sorted { $0.udid < $1.udid }
 
         for (index, window) in sortedWindows.enumerated() {
-            let device = index < sortedDevices.count ? sortedDevices[index] : nil
-            result.append(Simulator(window: window, device: device, isAmbiguous: true))
+            guard index < sortedDevices.count else { break }
+            result.append(Simulator(window: window, device: sortedDevices[index], isAmbiguous: true))
         }
 
         return result
