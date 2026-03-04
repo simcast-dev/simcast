@@ -15,26 +15,36 @@ final class LiveKitManager {
         guard let source = sources.first(where: { $0.windowID == window.windowID }) else {
             throw StreamError.windowNotFound
         }
-        let captureOptions = ScreenShareCaptureOptions(
-            dimensions: .h1080_169,
-            fps: 60,
-            showCursor: false
-        )
         let newTrack = LocalVideoTrack.createMacOSScreenShareTrack(
             source: source,
-            options: captureOptions
+            options: ScreenShareCaptureOptions(
+                dimensions: .h1080_169,
+                fps: 60,
+                showCursor: false
+            )
         )
         track = newTrack
-        try await newTrack.start()
 
         let url = UserDefaults.standard.string(forKey: "liveKitUrl") ?? ""
         let token = UserDefaults.standard.string(forKey: "liveKitToken") ?? ""
-        try await room.connect(url: url, token: token)
+        let roomOptions = RoomOptions(
+            defaultScreenShareCaptureOptions: ScreenShareCaptureOptions(
+                dimensions: .h1080_169,
+                fps: 60,
+                showCursor: false
+            ),
+            defaultVideoPublishOptions: VideoPublishOptions(
+                simulcast: true,
+                preferredCodec: .h264
+            ),
+            adaptiveStream: true
+        )
+        try await room.connect(url: url, token: token, roomOptions: roomOptions)
         try await room.localParticipant.publish(
             videoTrack: newTrack,
             options: VideoPublishOptions(
-                screenShareEncoding: VideoEncoding(maxBitrate: 6_000_000, maxFps: 60),
-                simulcast: false
+                simulcast: true,
+                preferredCodec: .h264
             )
         )
         isConnected = true
