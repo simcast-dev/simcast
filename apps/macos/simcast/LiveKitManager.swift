@@ -29,7 +29,8 @@ final class LiveKitManager {
         try await room.localParticipant.publish(
             videoTrack: track,
             options: VideoPublishOptions(
-                screenShareEncoding: VideoEncoding(maxBitrate: 6_000_000, maxFps: 60)
+                screenShareEncoding: VideoEncoding(maxBitrate: 6_000_000, maxFps: 60),
+                simulcast: false
             )
         )
         isConnected = true
