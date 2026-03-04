@@ -1,5 +1,6 @@
 import Foundation
 import LiveKit
+import ScreenCaptureKit
 import Observation
 
 @Observable
@@ -7,27 +8,30 @@ import Observation
 final class LiveKitManager {
     let room = Room()
     private(set) var isConnected = false
-    private var track: LocalVideoTrack?
+    private(set) var track: LocalVideoTrack?
 
-    /// Creates a `LocalVideoTrack` backed by a `BufferCapturer` and returns that capturer
-    /// so the caller can assign it to `SimulatorStream.bufferCapturer` before starting capture.
-    func prepareTrack() -> BufferCapturer {
-        let track = LocalVideoTrack.createBufferTrack()
-        self.track = track
-        // createBufferTrack() always installs a BufferCapturer — the force-cast is safe.
-        return track.capturer as! BufferCapturer
-    }
+    func startStreaming(window: SCWindow) async throws {
+        let sources = try await MacOSScreenCapturer.windowSources()
+        guard let source = sources.first(where: { $0.windowID == window.windowID }) else {
+            throw StreamError.windowNotFound
+        }
+        let captureOptions = ScreenShareCaptureOptions(
+            dimensions: .h1080_169,
+            fps: 60,
+            showCursor: false
+        )
+        let newTrack = LocalVideoTrack.createMacOSScreenShareTrack(
+            source: source,
+            options: captureOptions
+        )
+        track = newTrack
+        try await newTrack.start()
 
-    /// Connect to LiveKit and publish the prepared track.
-    /// Must be called after SCKit capture has started and at least one frame has been delivered
-    /// (SDK requires resolved dimensions at publish time).
-    func connectAndPublish() async throws {
-        guard let track else { return }
         let url = UserDefaults.standard.string(forKey: "liveKitUrl") ?? ""
         let token = UserDefaults.standard.string(forKey: "liveKitToken") ?? ""
         try await room.connect(url: url, token: token)
         try await room.localParticipant.publish(
-            videoTrack: track,
+            videoTrack: newTrack,
             options: VideoPublishOptions(
                 screenShareEncoding: VideoEncoding(maxBitrate: 6_000_000, maxFps: 60),
                 simulcast: false
@@ -38,7 +42,12 @@ final class LiveKitManager {
 
     func stop() async {
         isConnected = false
+        try? await track?.stop()
         track = nil
         await room.disconnect()
+    }
+
+    enum StreamError: Error {
+        case windowNotFound
     }
 }
