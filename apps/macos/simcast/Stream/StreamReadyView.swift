@@ -5,12 +5,16 @@ import ScreenCaptureKit
 struct StreamReadyView: View {
     @State private var service = SimulatorService()
     @State private var streamingIds: Set<String> = []
+    @State private var showLiveKitSettings = false
 
     var body: some View {
         VStack(spacing: 0) {
-            StreamReadyHeader(isEmpty: service.simulators.isEmpty)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
+            StreamReadyHeader(
+                isEmpty: service.simulators.isEmpty,
+                onOpenSettings: { showLiveKitSettings = true }
+            )
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
 
             if service.simulators.isEmpty {
                 ContentUnavailableView(
@@ -47,6 +51,9 @@ struct StreamReadyView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(white: 0.93))
+        .sheet(isPresented: $showLiveKitSettings) {
+            LiveKitSettingsSheet()
+        }
         .task {
             while !Task.isCancelled {
                 await service.refresh()
@@ -62,7 +69,8 @@ struct StreamReadyView: View {
 
 struct StreamReadyHeader: View {
     let isEmpty: Bool
-    @State private var showingSettings = false
+    let onOpenSettings: () -> Void
+    @Environment(AuthManager.self) private var auth
 
     var body: some View {
         HStack {
@@ -79,30 +87,33 @@ struct StreamReadyHeader: View {
                     .transition(.opacity)
             }
 
-            Button {
-                showingSettings.toggle()
+            Menu {
+                Button("LiveKit Settings", action: onOpenSettings)
+                Divider()
+                Button("Log Out") { auth.signOut() }
             } label: {
                 Image(systemName: "gearshape")
                     .font(.title2)
                     .foregroundStyle(.secondary)
             }
-            .buttonStyle(.borderless)
-            .popover(isPresented: $showingSettings, arrowEdge: .bottom) {
-                StreamSettingsPopover()
-            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
         }
         .animation(.easeInOut(duration: 0.2), value: isEmpty)
     }
 }
 
-private struct StreamSettingsPopover: View {
+private struct LiveKitSettingsSheet: View {
     @AppStorage("liveKitUrl") private var url = ""
     @AppStorage("liveKitToken") private var token = ""
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 16) {
             Text("LiveKit Settings")
-                .font(.headline)
+                .font(.title3)
+                .fontWeight(.semibold)
 
             LabeledContent("Server URL") {
                 TextField("wss://project.livekit.cloud", text: $url)
@@ -115,9 +126,15 @@ private struct StreamSettingsPopover: View {
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 280)
             }
+
+            HStack {
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
         }
-        .padding(16)
-        .frame(minWidth: 400)
+        .padding(24)
+        .frame(minWidth: 460)
     }
 }
 

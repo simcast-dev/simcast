@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		4D73D3042F57968900C12E80 /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4D73D3032F57968900C12E80 /* LiveKit */; };
+		4D73D3072F58787B00C12E80 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 4D73D3062F58787B00C12E80 /* Supabase */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +29,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4D73D3072F58787B00C12E80 /* Supabase in Frameworks */,
 				4D73D3042F57968900C12E80 /* LiveKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -73,6 +75,7 @@
 			name = simcast;
 			packageProductDependencies = (
 				4D73D3032F57968900C12E80 /* LiveKit */,
+				4D73D3062F58787B00C12E80 /* Supabase */,
 			);
 			productName = simcast;
 			productReference = 4D903AB42F56F150004598AB /* SimCast.app */;
@@ -104,6 +107,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				4D73D3022F57968900C12E80 /* XCRemoteSwiftPackageReference "client-sdk-swift" */,
+				4D73D3052F58787B00C12E80 /* XCRemoteSwiftPackageReference "supabase-swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 4D903AB52F56F150004598AB /* Products */;
@@ -372,6 +376,14 @@
 				minimumVersion = 2.12.1;
 			};
 		};
+		4D73D3052F58787B00C12E80 /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.5.1;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -379,6 +391,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 4D73D3022F57968900C12E80 /* XCRemoteSwiftPackageReference "client-sdk-swift" */;
 			productName = LiveKit;
+		};
+		4D73D3062F58787B00C12E80 /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4D73D3052F58787B00C12E80 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
