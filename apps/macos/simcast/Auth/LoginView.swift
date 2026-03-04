@@ -46,16 +46,12 @@ struct LoginView: View {
     // MARK: - Hero
 
     private var heroSection: some View {
-        // Placeholder — replace with branding image later
-        RoundedRectangle(cornerRadius: 0)
-            .fill(Color(NSColor.underPageBackgroundColor))
+        Image("HeroAbstract")
+            .resizable()
+            .scaledToFill()
             .frame(maxWidth: .infinity)
             .frame(height: 340)
-            .overlay(
-                Text("Logo placeholder")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            )
+            .clipped()
     }
 
     // MARK: - Login button

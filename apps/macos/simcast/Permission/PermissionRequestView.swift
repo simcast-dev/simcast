@@ -24,16 +24,12 @@ struct PermissionRequestView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                // Placeholder — replace with a screenshot image later
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.secondary.opacity(0.10))
+                Image("PermissionsHero")
+                    .resizable()
+                    .scaledToFit()
                     .frame(maxWidth: .infinity)
                     .frame(height: 280)
-                    .overlay(
-                        Text("Screenshot placeholder")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
 
                 Spacer()
             }

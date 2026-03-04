@@ -1,0 +1,129 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 540 340">
+  <defs>
+    <radialGradient id="bgGrad" cx="40%" cy="35%" r="75%">
+      <stop offset="0%" stop-color="#1A1040"/>
+      <stop offset="100%" stop-color="#060818"/>
+    </radialGradient>
+    <radialGradient id="rCyan">
+      <stop offset="0%" stop-color="#22D3EE" stop-opacity="0.75"/>
+      <stop offset="100%" stop-color="#22D3EE" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="rPurple">
+      <stop offset="0%" stop-color="#A855F7" stop-opacity="0.65"/>
+      <stop offset="100%" stop-color="#A855F7" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="rBlue">
+      <stop offset="0%" stop-color="#3B82F6" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#3B82F6" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="blur50">
+      <feGaussianBlur stdDeviation="50"/>
+    </filter>
+    <filter id="blur35">
+      <feGaussianBlur stdDeviation="35"/>
+    </filter>
+    <filter id="nodeGlow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="smallGlow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="2.5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <linearGradient id="bottomFade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="65%" stop-color="#060818" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#040610" stop-opacity="0.55"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="540" height="340" fill="url(#bgGrad)"/>
+
+  <!-- Ambient blobs (drawn with a group so blur stays contained) -->
+  <g>
+    <ellipse cx="445" cy="58" rx="210" ry="190" fill="url(#rCyan)" filter="url(#blur50)"/>
+  </g>
+  <g>
+    <ellipse cx="90" cy="298" rx="195" ry="175" fill="url(#rPurple)" filter="url(#blur50)"/>
+  </g>
+  <g>
+    <ellipse cx="258" cy="188" rx="148" ry="132" fill="url(#rBlue)" filter="url(#blur35)"/>
+  </g>
+
+  <!-- Dashed far-reach lines from secondary nodes -->
+  <line x1="270" y1="25"  x2="270" y2="115" stroke="#3B82F6" stroke-width="0.6" stroke-opacity="0.3" stroke-dasharray="3 6"/>
+  <line x1="165" y1="50"  x2="270" y2="115" stroke="#22D3EE" stroke-width="0.5" stroke-opacity="0.22" stroke-dasharray="2 7"/>
+  <line x1="375" y1="50"  x2="270" y2="115" stroke="#22D3EE" stroke-width="0.5" stroke-opacity="0.22" stroke-dasharray="2 7"/>
+  <line x1="385" y1="205" x2="480" y2="125" stroke="#22D3EE" stroke-width="0.6" stroke-opacity="0.3"  stroke-dasharray="3 6"/>
+  <line x1="385" y1="205" x2="458" y2="295" stroke="#3B82F6" stroke-width="0.6" stroke-opacity="0.22" stroke-dasharray="3 6"/>
+  <line x1="155" y1="205" x2="58"  y2="125" stroke="#A855F7" stroke-width="0.6" stroke-opacity="0.3"  stroke-dasharray="3 6"/>
+  <line x1="155" y1="205" x2="82"  y2="295" stroke="#A855F7" stroke-width="0.6" stroke-opacity="0.22" stroke-dasharray="3 6"/>
+  <line x1="270" y1="115" x2="270" y2="248" stroke="#22D3EE" stroke-width="0.6" stroke-opacity="0.28" stroke-dasharray="4 5"/>
+
+  <!-- Main triangle A(270,115)–B(385,205)–C(155,205) -->
+  <line x1="270" y1="115" x2="385" y2="205" stroke="#22D3EE" stroke-width="0.9" stroke-opacity="0.55"/>
+  <line x1="270" y1="115" x2="155" y2="205" stroke="#A855F7" stroke-width="0.9" stroke-opacity="0.55"/>
+  <line x1="385" y1="205" x2="155" y2="205" stroke="#3B82F6" stroke-width="0.8" stroke-opacity="0.45"/>
+
+  <!-- Hexagon around A (pointy-top, r=35) -->
+  <polygon points="270,80 300.3,97.5 300.3,132.5 270,150 239.7,132.5 239.7,97.5"
+           fill="none" stroke="#3B82F6" stroke-width="0.7" stroke-opacity="0.45"/>
+  <!-- Outer dashed ring around A -->
+  <circle cx="270" cy="115" r="55" fill="none" stroke="#22D3EE" stroke-width="0.4" stroke-opacity="0.18" stroke-dasharray="5 8"/>
+
+  <!-- Hexagon around B (385,205), r=20 -->
+  <polygon points="385,185 402.3,195 402.3,215 385,225 367.7,215 367.7,195"
+           fill="none" stroke="#22D3EE" stroke-width="0.6" stroke-opacity="0.4"/>
+  <!-- Hexagon around C (155,205), r=20 -->
+  <polygon points="155,185 172.3,195 172.3,215 155,225 137.7,215 137.7,195"
+           fill="none" stroke="#A855F7" stroke-width="0.6" stroke-opacity="0.4"/>
+
+  <!-- Subtle bottom waves -->
+  <path d="M0,305 Q90,280 180,296 Q270,312 360,285 Q450,260 540,274 L540,340 L0,340 Z"
+        fill="#22D3EE" fill-opacity="0.03"/>
+  <path d="M0,318 Q135,296 270,308 Q405,322 540,300 L540,340 L0,340 Z"
+        fill="#3B82F6" fill-opacity="0.04"/>
+
+  <!-- Tertiary nodes (no glow) -->
+  <circle cx="270" cy="25"  r="2"   fill="#3B82F6" opacity="0.65"/>
+  <circle cx="165" cy="50"  r="1.8" fill="#22D3EE" opacity="0.55"/>
+  <circle cx="375" cy="50"  r="1.8" fill="#22D3EE" opacity="0.55"/>
+  <circle cx="458" cy="295" r="2"   fill="#3B82F6" opacity="0.5"/>
+  <circle cx="82"  cy="295" r="2"   fill="#A855F7" opacity="0.5"/>
+  <circle cx="270" cy="248" r="1.8" fill="#22D3EE" opacity="0.48"/>
+
+  <!-- Micro scatter dots -->
+  <circle cx="328" cy="76"  r="1.2" fill="#A855F7" opacity="0.42"/>
+  <circle cx="206" cy="76"  r="1.2" fill="#3B82F6" opacity="0.42"/>
+  <circle cx="428" cy="268" r="1.2" fill="#22D3EE" opacity="0.38"/>
+  <circle cx="114" cy="268" r="1.2" fill="#A855F7" opacity="0.38"/>
+  <circle cx="506" cy="196" r="1"   fill="#3B82F6" opacity="0.32"/>
+  <circle cx="36"  cy="196" r="1"   fill="#A855F7" opacity="0.32"/>
+  <circle cx="312" cy="318" r="1"   fill="#22D3EE" opacity="0.28"/>
+  <circle cx="518" cy="76"  r="1"   fill="#22D3EE" opacity="0.28"/>
+  <circle cx="28"  cy="76"  r="1"   fill="#A855F7" opacity="0.28"/>
+  <circle cx="422" cy="156" r="1"   fill="#3B82F6" opacity="0.28"/>
+  <circle cx="120" cy="156" r="1"   fill="#3B82F6" opacity="0.28"/>
+
+  <!-- Secondary nodes (small glow) -->
+  <circle cx="480" cy="125" r="2.5" fill="#22D3EE" filter="url(#smallGlow)"/>
+  <circle cx="58"  cy="125" r="2.5" fill="#A855F7" filter="url(#smallGlow)"/>
+
+  <!-- Primary node C — left (155, 205) -->
+  <circle cx="155" cy="205" r="7"   fill="#A855F7" fill-opacity="0.22" filter="url(#nodeGlow)"/>
+  <circle cx="155" cy="205" r="4"   fill="#A855F7" opacity="0.92"/>
+  <circle cx="155" cy="205" r="1.8" fill="white"   opacity="0.92"/>
+
+  <!-- Primary node B — right (385, 205) -->
+  <circle cx="385" cy="205" r="7"   fill="#22D3EE" fill-opacity="0.22" filter="url(#nodeGlow)"/>
+  <circle cx="385" cy="205" r="4"   fill="#22D3EE" opacity="0.92"/>
+  <circle cx="385" cy="205" r="1.8" fill="white"   opacity="0.92"/>
+
+  <!-- Primary node A — center (270, 115), brightest -->
+  <circle cx="270" cy="115" r="10"  fill="#22D3EE" fill-opacity="0.18" filter="url(#nodeGlow)"/>
+  <circle cx="270" cy="115" r="5.5" fill="#22D3EE" opacity="0.96"/>
+  <circle cx="270" cy="115" r="2.5" fill="white"/>
+
+  <!-- Bottom edge fade -->
+  <rect width="540" height="340" fill="url(#bottomFade)"/>
+</svg>
