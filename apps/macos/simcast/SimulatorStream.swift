@@ -41,6 +41,7 @@ final class SimulatorStream: NSObject, SCStreamOutput, SCStreamDelegate {
         config.height = Int(window.frame.height * scaleFactor)
         config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
         config.showsCursor = false
+        config.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
 
         do {
             stream = SCStream(filter: filter, configuration: config, delegate: self)

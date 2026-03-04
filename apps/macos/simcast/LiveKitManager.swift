@@ -26,7 +26,12 @@ final class LiveKitManager {
         let url = UserDefaults.standard.string(forKey: "liveKitUrl") ?? ""
         let token = UserDefaults.standard.string(forKey: "liveKitToken") ?? ""
         try await room.connect(url: url, token: token)
-        try await room.localParticipant.publish(videoTrack: track)
+        try await room.localParticipant.publish(
+            videoTrack: track,
+            options: VideoPublishOptions(
+                screenShareEncoding: VideoEncoding(maxBitrate: 6_000_000, maxFps: 60)
+            )
+        )
         isConnected = true
     }
 
