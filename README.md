@@ -22,7 +22,7 @@
 
 ---
 
-SimCast captures individual iOS Simulator windows using ScreenCaptureKit, hardware-encodes to H.264 at 60 fps, and streams them to any browser via [LiveKit](https://livekit.io) (WebRTC). A web dashboard lets you start and stop streams, interact with the simulator remotely --- tap, scroll, type, press hardware buttons --- view real-time logs, capture screenshots, and share guest links. No Xcode required on the viewer side.
+SimCast captures individual iOS Simulator windows using ScreenCaptureKit, hardware-encodes to H.264 at 60 fps, and streams them to any browser via [LiveKit](https://livekit.io) (WebRTC). A web dashboard lets you start and stop streams, interact with the simulator remotely --- tap, scroll, type, press hardware buttons --- view real-time logs, and capture screenshots. No Xcode required on the viewer side.
 
 ## Features
 
@@ -43,7 +43,6 @@ SimCast captures individual iOS Simulator windows using ScreenCaptureKit, hardwa
 - **Live viewer** --- split-pane layout with a stream grid and full-size viewer
 - **Real-time logs** --- per-simulator log stream with category filters (stream, livekit, presence, command, error)
 - **Screenshot and recording gallery** --- browse, preview, and download past captures
-- **Guest share links** --- unauthenticated `/watch` URLs for stakeholders, QA, and demos
 - **Stream stats** --- resolution, FPS, bitrate, packet loss, and jitter displayed in real time
 
 **Built for Automation**
@@ -324,12 +323,12 @@ Run the web dashboard on the same Mac as the capture app and access it from any 
 ```
 simcast/
 ├── apps/
-│   ├── macos/          # Swift/SwiftUI — captures Simulator, streams via LiveKit
-│   ├── web/            # Next.js 16 — dashboard, stream viewer, interactive controls
-│   └── supabase/       # Database migrations, edge functions, config
-├── docs/               # Design documents and assets
-├── setup.sh            # Interactive setup script
-├── CLAUDE.md           # AI assistant project context
+│   ├── macos/              # Swift 6 / SwiftUI — captures Simulator, streams via LiveKit
+│   ├── web/                # Next.js 16 — dashboard, stream viewer, interactive controls
+│   └── supabase/           # Database migrations, edge functions, config
+├── .github/workflows/      # CI/CD — notarized DMG release pipeline
+├── setup.sh                # Interactive setup script
+├── CLAUDE.md               # AI assistant project context
 └── README.md
 ```
 

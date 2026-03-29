@@ -18,42 +18,44 @@ src/
 │   ├── globals.css          # @import "tailwindcss" + CSS custom properties (--bg, --text, --log-*, etc.)
 │   ├── layout.tsx           # Root layout, Geist font
 │   ├── page.tsx             # Root — auth-protected, renders DashboardClient
+│   ├── theme-provider.tsx   # Theme context provider
+│   ├── theme-script.tsx     # Inline script to prevent FOUC
 │   ├── login/
 │   │   ├── page.tsx         # Server wrapper
 │   │   └── LoginForm.tsx    # Client component
-│   ├── dashboard/
-│   │   ├── DashboardClient.tsx  # Client root — layout, split-pane, log drawer, background blooms
-│   │   ├── StreamGrid.tsx       # Realtime presence cards + send stream_commands
-│   │   ├── SimulatorViewer.tsx  # LiveKit room viewer wrapper
-│   │   ├── ui.tsx               # Shared UI components (ControlPanelButton, StatItem, DeviceIconBox, etc.)
-│   │   ├── ScreenshotCleaner.tsx # Purge old screenshots from storage
-│   │   ├── SignOutButton.tsx
-│   │   ├── components/
-│   │   │   ├── ScreenView.tsx       # Interactive controls (tap, scroll, type, push, link, record, screenshot)
-│   │   │   ├── LogDrawer.tsx        # Footer log drawer with category filters
-│   │   │   ├── PushNotificationModal.tsx
-│   │   │   └── ThemeSelector.tsx
-│   │   ├── hooks/
-│   │   │   ├── usePresenceSubscription.ts  # Realtime presence on user:{userId} channel
-│   │   │   ├── useSimulatorChannel.ts     # Per-simulator channel (simulator:{udid}) for logs + clear_logs
-│   │   │   ├── useLiveKitConnection.ts     # LiveKit token + room connection
-│   │   │   ├── useLogStream.ts             # Log entry state, capped array, error count
-│   │   │   └── useVideoStats.ts            # Stream quality metrics
-│   │   └── gallery/
-│   │       ├── ScreenshotGallery.tsx
-│   │       ├── RecordingGallery.tsx
-│   │       ├── useScreenshots.ts    # Fetch + Realtime INSERT subscription
-│   │       ├── useRecordings.ts     # Fetch + Realtime INSERT subscription
-│   │       └── VideoPreviewModal.tsx
-│   └── watch/
-│       ├── page.tsx         # Server component — reads ?server= and ?token= params
-│       └── WatchView.tsx    # Client — unauthenticated guest LiveKit viewer
+│   └── dashboard/
+│       ├── DashboardClient.tsx  # Client root — layout, split-pane, log drawer, background blooms
+│       ├── StreamGrid.tsx       # Realtime presence cards + send stream_commands
+│       ├── SimulatorViewer.tsx  # LiveKit room viewer wrapper
+│       ├── ui.tsx               # Shared UI components (ControlPanelButton, StatItem, DeviceIconBox, etc.)
+│       ├── SignOutButton.tsx
+│       ├── contexts/
+│       │   └── PageVisibilityContext.tsx  # Tracks browser tab visibility
+│       ├── components/
+│       │   ├── ScreenView.tsx       # Interactive controls (tap, scroll, type, push, link, record, screenshot)
+│       │   ├── LogDrawer.tsx        # Footer log drawer with category filters
+│       │   ├── AppDropdown.tsx      # App selection dropdown
+│       │   ├── PushNotificationModal.tsx
+│       │   └── ThemeSelector.tsx
+│       ├── hooks/
+│       │   ├── usePresenceSubscription.ts  # Realtime presence on user:{userId} channel
+│       │   ├── useSimulatorChannel.ts     # Per-simulator channel (simulator:{udid}) for logs + clear_logs
+│       │   ├── useLiveKitConnection.ts     # LiveKit token + room connection
+│       │   ├── useLogStream.ts             # Log entry state, capped array, error count
+│       │   ├── useVideoStats.ts            # Stream quality metrics
+│       │   └── usePageVisibility.ts        # Hook for PageVisibilityContext
+│       └── gallery/
+│           ├── ScreenshotGallery.tsx
+│           ├── RecordingGallery.tsx
+│           ├── ImagePreviewModal.tsx # Full-size screenshot preview
+│           ├── VideoPreviewModal.tsx # Recording playback preview
+│           ├── useScreenshots.ts    # Fetch + Realtime INSERT subscription
+│           └── useRecordings.ts     # Fetch + Realtime INSERT subscription
 ├── lib/
 │   └── supabase/
 │       ├── client.ts        # createBrowserClient
 │       └── server.ts        # createServerClient + cookies()
-├── proxy.ts                 # Supabase session refresh + route protection + CSP/security headers
-└── middleware.ts            # Re-exports proxy
+└── proxy.ts                 # Supabase session refresh + route protection + CSP/security headers (used as middleware)
 ```
 
 ## Supabase
@@ -68,7 +70,7 @@ src/
 | Function | Purpose |
 |----------|---------|
 | `livekit-token` | Issues LiveKit JWT for authenticated users (publisher or subscriber) |
-| `livekit-guest-token` | Issues short-lived guest JWT (no auth required) for `/watch` share links |
+| `livekit-guest-token` | Issues short-lived guest JWT (no auth required) for guest share links (edge function deployed, web route not yet implemented) |
 
 ## Command Flow (Web → macOS)
 
@@ -122,10 +124,9 @@ Real-time stats bar (always visible): RES, FPS, BW (bitrate), PKT (packets lost 
 
 ## Route Protection
 
-`proxy.ts` (called from `middleware.ts`) redirects:
-- Unauthenticated → any route (except `/login` and `/watch`) redirects to `/login`
+`proxy.ts` (Next.js middleware) redirects:
+- Unauthenticated → any route (except `/login`) redirects to `/login`
 - Authenticated → `/login` redirects to `/`
-- `/watch` is public (guest token, no auth required)
 
 ## Security Headers
 
@@ -148,9 +149,10 @@ npm run lint
 ```
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
-NEXT_PUBLIC_LIVEKIT_URL=   # optional — validates server URL in /watch
+NEXT_PUBLIC_LIVEKIT_URL=   # optional — LiveKit server URL for future guest viewer
 ```
 
 ## Deployment
 
-Vercel — zero-config. Set env vars in project settings.
+- **Vercel** — zero-config, set env vars in project settings
+- **Tailscale** — self-host on the same Mac, access via tailnet or public Funnel URL

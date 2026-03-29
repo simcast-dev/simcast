@@ -11,11 +11,16 @@ Open-source platform that streams iOS Simulator windows over WebRTC. The macOS a
 ```
 simcast/
 ├── CLAUDE.md
+├── README.md
+├── setup.sh                # Interactive setup script
 ├── apps/
 │   ├── macos/              # Swift/SwiftUI — captures Simulator, streams via LiveKit, syncs via Supabase Realtime
 │   │   └── CLAUDE.md
-│   └── web/                # Next.js 16 — dashboard, stream control, LiveKit viewer, interactive controls, guest share links
-│       └── CLAUDE.md
+│   ├── web/                # Next.js 16 — dashboard, stream control, LiveKit viewer, interactive controls
+│   │   └── CLAUDE.md
+│   └── supabase/           # Database migrations, edge functions (livekit-token, livekit-guest-token), config
+├── docs/                   # Design documents and assets
+└── .github/workflows/      # CI/CD — notarized DMG release pipeline
 ```
 
 ## System Overview
