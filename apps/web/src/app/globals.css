@@ -1,0 +1,261 @@
+@import "tailwindcss";
+
+/* ─── Design Tokens (theme-independent) ─── */
+
+:root {
+  /* Typography scale */
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-base: 13px;
+  --font-size-md: 14px;
+  --font-size-lg: 16px;
+
+  /* Font weights */
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* Letter spacing */
+  --tracking-tight: 0.02em;
+  --tracking-normal: 0.04em;
+  --tracking-wide: 0.08em;
+
+  /* Border radii */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-full: 9999px;
+}
+
+/* ─── Dark Theme (Aurora Dark) ─── */
+
+:root[data-theme="dark"] {
+  /* Core palette */
+  --bg: #161330;
+  --surface: rgba(255, 255, 255, 0.05);
+  --surface-2: rgba(255, 255, 255, 0.08);
+  --violet: #7C3AED;
+  --violet-2: #A78BFA;
+  --violet-glow: rgba(124, 58, 237, 0.2);
+  --emerald: #10B981;
+  --emerald-glow: rgba(16, 185, 129, 0.15);
+  --text: #EDE9FF;
+  --text-2: #8A87B0;
+  --text-3: #8078a8;
+  --border: rgba(255, 255, 255, 0.09);
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --header-bg: rgba(22, 19, 48, 0.55);
+
+  /* Semantic tokens */
+  --overlay-bg: rgba(10, 8, 24, 0.78);
+  --control-bg: rgba(0, 0, 0, 0.7);
+  --control-bg-hover: rgba(255, 255, 255, 0.15);
+  --control-border: rgba(255, 255, 255, 0.13);
+  --control-border-hover: rgba(255, 255, 255, 0.25);
+  --control-text: rgba(255, 255, 255, 0.65);
+  --input-bg: rgba(255, 255, 255, 0.06);
+  --input-border: rgba(124, 58, 237, 0.25);
+  --input-border-focus: rgba(124, 58, 237, 0.55);
+  --card-bg: rgba(20, 15, 42, 0.97);
+  --card-border: rgba(124, 58, 237, 0.28);
+  --badge-bg: rgba(124, 58, 237, 0.18);
+  --badge-border: rgba(124, 58, 237, 0.3);
+  --badge-text: #a78bfa;
+  --streaming-glow: #4ade80;
+  --streaming-glow-bg: rgba(74, 222, 128, 0.1);
+  --streaming-glow-border: rgba(74, 222, 128, 0.25);
+  --divider: rgba(255, 255, 255, 0.07);
+  --skeleton-bg: rgba(124, 58, 237, 0.04);
+  --skeleton-pulse: rgba(124, 58, 237, 0.08);
+
+  /* Button variants */
+  --btn-primary-from: rgba(124, 58, 237, 0.2);
+  --btn-primary-to: rgba(16, 185, 129, 0.1);
+  --btn-primary-border: rgba(124, 58, 237, 0.3);
+  --btn-primary-text: #C4AAFF;
+  --btn-primary-shadow: 0 0 12px rgba(124, 58, 237, 0.1);
+  --btn-danger-bg: rgba(239, 68, 68, 0.15);
+  --btn-danger-border: rgba(239, 68, 68, 0.3);
+  --btn-danger-text: #f87171;
+  --btn-secondary-bg: rgba(255, 255, 255, 0.06);
+  --btn-secondary-border: rgba(255, 255, 255, 0.1);
+  --btn-secondary-text: var(--text-2);
+
+  /* Tab navigation */
+  --tab-active-from: rgba(124, 58, 237, 0.22);
+  --tab-active-to: rgba(16, 185, 129, 0.08);
+  --tab-active-border: rgba(124, 58, 237, 0.35);
+  --tab-active-text: #C4AAFF;
+  --tab-active-shadow: 0 0 12px rgba(124, 58, 237, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --tab-hover-bg: rgba(255, 255, 255, 0.06);
+  --tab-hover-border: rgba(255, 255, 255, 0.12);
+
+  /* Gradient border card */
+  --card-gradient: linear-gradient(135deg, rgba(124, 58, 237, 0.35), rgba(16, 185, 129, 0.15), rgba(124, 58, 237, 0.08));
+  --card-gradient-hover: linear-gradient(135deg, rgba(124, 58, 237, 0.6), rgba(16, 185, 129, 0.3), rgba(124, 58, 237, 0.15));
+
+  /* Background blooms */
+  --bloom-violet: rgba(124, 58, 237, 0.25);
+  --bloom-emerald: rgba(16, 185, 129, 0.18);
+  --bloom-indigo: rgba(99, 102, 241, 0.12);
+
+  /* Misc */
+  --error-bg: rgba(239, 68, 68, 0.04);
+  --error-border: rgba(239, 68, 68, 0.2);
+  --error-text: #f87171;
+  --muted-label: rgba(196, 173, 255, 0.6);
+  --muted-label-2: rgba(196, 173, 255, 0.35);
+  --checkbox-unchecked-bg: rgba(0, 0, 0, 0.5);
+  --checkbox-unchecked-border: rgba(255, 255, 255, 0.3);
+  --toggle-off-bg: rgba(255, 255, 255, 0.1);
+  --toggle-off-border: rgba(255, 255, 255, 0.15);
+  --toggle-on-bg: rgba(124, 58, 237, 0.7);
+  --toggle-on-border: rgba(124, 58, 237, 0.9);
+  --placeholder-text: rgba(255, 255, 255, 0.38);
+
+  /* Log category colors */
+  --log-stream: #1A9950;
+  --log-livekit: #2673D9;
+  --log-presence: #BF7300;
+  --log-command: #8C40D9;
+  --log-error: #D92626;
+}
+
+/* ─── Light Theme ─── */
+
+:root[data-theme="light"] {
+  /* Core palette */
+  --bg: #F8F7FC;
+  --surface: rgba(99, 90, 160, 0.06);
+  --surface-2: rgba(99, 90, 160, 0.09);
+  --violet: #6D28D9;
+  --violet-2: #7C3AED;
+  --violet-glow: rgba(109, 40, 217, 0.12);
+  --emerald: #059669;
+  --emerald-glow: rgba(5, 150, 105, 0.1);
+  --text: #1A1633;
+  --text-2: #5C5880;
+  --text-3: #7A769E;
+  --border: rgba(99, 90, 160, 0.15);
+  --border-subtle: rgba(99, 90, 160, 0.1);
+  --header-bg: rgba(248, 247, 252, 0.8);
+
+  /* Semantic tokens */
+  --overlay-bg: rgba(0, 0, 0, 0.35);
+  --control-bg: rgba(255, 255, 255, 0.9);
+  --control-bg-hover: rgba(99, 90, 160, 0.1);
+  --control-border: rgba(99, 90, 160, 0.2);
+  --control-border-hover: rgba(99, 90, 160, 0.3);
+  --control-text: rgba(26, 22, 51, 0.65);
+  --input-bg: rgba(255, 255, 255, 0.7);
+  --input-border: rgba(109, 40, 217, 0.2);
+  --input-border-focus: rgba(109, 40, 217, 0.5);
+  --card-bg: rgba(255, 255, 255, 0.95);
+  --card-border: rgba(109, 40, 217, 0.15);
+  --badge-bg: rgba(109, 40, 217, 0.1);
+  --badge-border: rgba(109, 40, 217, 0.2);
+  --badge-text: #6D28D9;
+  --streaming-glow: #059669;
+  --streaming-glow-bg: rgba(5, 150, 105, 0.08);
+  --streaming-glow-border: rgba(5, 150, 105, 0.2);
+  --divider: rgba(99, 90, 160, 0.12);
+  --skeleton-bg: rgba(109, 40, 217, 0.04);
+  --skeleton-pulse: rgba(109, 40, 217, 0.08);
+
+  /* Button variants */
+  --btn-primary-from: rgba(109, 40, 217, 0.12);
+  --btn-primary-to: rgba(5, 150, 105, 0.06);
+  --btn-primary-border: rgba(109, 40, 217, 0.25);
+  --btn-primary-text: #6D28D9;
+  --btn-primary-shadow: 0 0 12px rgba(109, 40, 217, 0.08);
+  --btn-danger-bg: rgba(239, 68, 68, 0.08);
+  --btn-danger-border: rgba(239, 68, 68, 0.2);
+  --btn-danger-text: #dc2626;
+  --btn-secondary-bg: rgba(99, 90, 160, 0.06);
+  --btn-secondary-border: rgba(99, 90, 160, 0.12);
+  --btn-secondary-text: var(--text-2);
+
+  /* Tab navigation */
+  --tab-active-from: rgba(109, 40, 217, 0.1);
+  --tab-active-to: rgba(5, 150, 105, 0.05);
+  --tab-active-border: rgba(109, 40, 217, 0.25);
+  --tab-active-text: #6D28D9;
+  --tab-active-shadow: 0 0 12px rgba(109, 40, 217, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  --tab-hover-bg: rgba(99, 90, 160, 0.06);
+  --tab-hover-border: rgba(99, 90, 160, 0.12);
+
+  /* Gradient border card */
+  --card-gradient: linear-gradient(135deg, rgba(109, 40, 217, 0.2), rgba(5, 150, 105, 0.1), rgba(109, 40, 217, 0.05));
+  --card-gradient-hover: linear-gradient(135deg, rgba(109, 40, 217, 0.35), rgba(5, 150, 105, 0.18), rgba(109, 40, 217, 0.08));
+
+  /* Background blooms */
+  --bloom-violet: rgba(109, 40, 217, 0.08);
+  --bloom-emerald: rgba(5, 150, 105, 0.06);
+  --bloom-indigo: rgba(99, 102, 241, 0.05);
+
+  /* Misc */
+  --error-bg: rgba(239, 68, 68, 0.06);
+  --error-border: rgba(239, 68, 68, 0.15);
+  --error-text: #dc2626;
+  --muted-label: rgba(109, 40, 217, 0.6);
+  --muted-label-2: rgba(109, 40, 217, 0.4);
+  --checkbox-unchecked-bg: rgba(255, 255, 255, 0.7);
+  --checkbox-unchecked-border: rgba(99, 90, 160, 0.3);
+  --toggle-off-bg: rgba(99, 90, 160, 0.12);
+  --toggle-off-border: rgba(99, 90, 160, 0.2);
+  --toggle-on-bg: rgba(109, 40, 217, 0.7);
+  --toggle-on-border: rgba(109, 40, 217, 0.9);
+  --placeholder-text: rgba(26, 22, 51, 0.35);
+
+  --log-stream: #15803d;
+  --log-livekit: #1d4ed8;
+  --log-presence: #a16207;
+  --log-command: #7c3aed;
+  --log-error: #dc2626;
+}
+
+/* ─── Base styles ─── */
+
+body {
+  font-family: var(--font-sans, system-ui), sans-serif;
+  background-color: var(--bg);
+  color: var(--text);
+}
+
+h1, h2, h3, h4, .font-display {
+  font-family: var(--font-sans, system-ui), sans-serif;
+}
+
+code, pre, .font-code {
+  font-family: var(--font-geist-mono, monospace);
+}
+
+/* ─── Keyframes ─── */
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes live-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.6); }
+  50%      { box-shadow: 0 0 0 5px rgba(74, 222, 128, 0); }
+}
+
+.animate-live-pulse{ animation: live-pulse 2s ease-in-out infinite; }
+
+/* ─── Gradient border card ─── */
+
+.gradient-border-card {
+  background:
+    linear-gradient(var(--surface), var(--surface)) padding-box,
+    var(--card-gradient) border-box;
+  border: 1px solid transparent;
+}
+
+.gradient-border-card:hover {
+  background:
+    linear-gradient(var(--surface-2), var(--surface-2)) padding-box,
+    var(--card-gradient-hover) border-box;
+}

@@ -1,0 +1,10 @@
+//
+//  Debug.xcconfig
+//  simcast
+//
+//  Created by Ioan-Florin Matincă on 05.03.2026.
+//
+
+SUPABASE_URL = https:$()/$()/ocdfaysptysziokdgbye.supabase.co
+SUPABASE_ANON_KEY = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9jZGZheXNwdHlzemlva2RnYnllIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2MzUwNDIsImV4cCI6MjA4ODIxMTA0Mn0.XGeABR-lr7ceW0LFZ4C71ZcwZQWU79x-Girg76sKtIU
+

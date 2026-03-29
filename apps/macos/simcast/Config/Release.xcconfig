@@ -1,0 +1,9 @@
+//
+//  Release.xcconfig
+//  simcast
+//
+//  Created by Ioan-Florin Matincă on 05.03.2026.
+//
+
+SUPABASE_URL =
+SUPABASE_ANON_KEY =

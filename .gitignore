@@ -1,0 +1,12 @@
+.DS_Store
+*.xcuserstate
+xcuserdata/
+apps/macos/simcast/Config/Debug.xcconfig
+
+# Astro (presentation)
+apps/presentation/node_modules/
+apps/presentation/dist/
+apps/presentation/.astro/
+
+# Superpowers brainstorming
+.superpowers/

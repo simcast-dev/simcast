@@ -1,0 +1,209 @@
+name: Release
+
+run-name: Release ${{ inputs.version }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 1.0.2)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      # ── Checkout ──────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # ── Select Xcode 26 ───────────────────────────────────
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
+
+      # ── Extract version ────────────────────────────────────
+      - name: Extract version
+        id: version
+        run: |
+          VERSION="${{ inputs.version }}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      # ── Create tag ───────────────────────────────────────
+      - name: Create tag
+        run: |
+          git tag "v${{ inputs.version }}"
+          git push origin "v${{ inputs.version }}"
+
+      # ── Import signing certificate ────────────────────────
+      - name: Import certificate
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          # Create a temporary keychain
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Import certificate
+          CERT_PATH="$RUNNER_TEMP/certificate.p12"
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode -o "$CERT_PATH"
+          security import "$CERT_PATH" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+
+          # Set keychain to be used by codesign
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Clean up certificate file
+          rm "$CERT_PATH"
+
+          # Store keychain path and password for cleanup step
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD" >> "$GITHUB_ENV"
+
+      # ── Inject Release configuration ──────────────────────
+      - name: Inject Release config
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          cat > apps/macos/simcast/Config/Release.xcconfig << EOF
+          SUPABASE_URL = $SUPABASE_URL
+          SUPABASE_ANON_KEY = $SUPABASE_ANON_KEY
+          EOF
+
+      # ── Resolve dependencies ──────────────────────────────
+      - name: Resolve SPM dependencies
+        run: |
+          xcodebuild -project apps/macos/simcast.xcodeproj \
+            -scheme simcast \
+            -resolvePackageDependencies
+
+      # ── Archive ───────────────────────────────────────────
+      - name: Archive
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project apps/macos/simcast.xcodeproj \
+            -scheme simcast \
+            -configuration Release \
+            -destination "generic/platform=macOS" \
+            -archivePath "$RUNNER_TEMP/SimCast.xcarchive" \
+            ARCHS=arm64 \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Developer ID Application" \
+            DEVELOPMENT_TEAM=69GA4523WD \
+            2>&1 | tee "$RUNNER_TEMP/build.log"
+
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "::error::Archive failed. Errors:"
+            grep -A2 "error:" "$RUNNER_TEMP/build.log" || true
+            exit 1
+          fi
+
+      # ── Export archive ────────────────────────────────────
+      - name: Export archive
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/SimCast.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -exportOptionsPlist apps/macos/release/export-options.plist
+
+      # ── Verify code signing ───────────────────────────────
+      - name: Verify signing
+        run: |
+          codesign --verify --deep --strict --verbose=2 "$RUNNER_TEMP/export/SimCast.app"
+          echo "Code signing verification passed"
+
+      # ── Notarize ──────────────────────────────────────────
+      - name: Notarize
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # Create a zip for notarization submission
+          ditto -c -k --keepParent "$RUNNER_TEMP/export/SimCast.app" "$RUNNER_TEMP/SimCast-notarize.zip"
+
+          # Submit for notarization and wait
+          xcrun notarytool submit "$RUNNER_TEMP/SimCast-notarize.zip" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_ID_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+
+          # Staple the notarization ticket to the app
+          xcrun stapler staple "$RUNNER_TEMP/export/SimCast.app"
+
+          # Verify stapling
+          xcrun stapler validate "$RUNNER_TEMP/export/SimCast.app"
+          echo "Notarization and stapling complete"
+
+          # Clean up zip
+          rm "$RUNNER_TEMP/SimCast-notarize.zip"
+
+      # ── Create DMG ─────────────────────────────────────────
+      - name: Create DMG
+        run: |
+          brew install create-dmg
+
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Stage the app in a folder (create-dmg expects a source folder, not a .app directly)
+          mkdir -p "$RUNNER_TEMP/dmg-stage"
+          cp -R "$RUNNER_TEMP/export/SimCast.app" "$RUNNER_TEMP/dmg-stage/"
+
+          create-dmg \
+            --volname "SimCast" \
+            --background "apps/macos/release/dmg-background.png" \
+            --window-pos 200 120 \
+            --window-size 660 400 \
+            --icon-size 80 \
+            --icon "SimCast.app" 180 210 \
+            --app-drop-link 480 210 \
+            --hide-extension "SimCast.app" \
+            "$RUNNER_TEMP/SimCast-${VERSION}.dmg" \
+            "$RUNNER_TEMP/dmg-stage"
+
+          echo "DMG_PATH=$RUNNER_TEMP/SimCast-${VERSION}.dmg" >> "$GITHUB_ENV"
+
+      # ── Create GitHub Release ─────────────────────────────
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ steps.version.outputs.tag }}"
+
+          NOTES=$(gh api repos/${{ github.repository }}/releases/generate-notes \
+            -f tag_name="$TAG" --jq '.body' \
+            | sed '/^\*\*Full Changelog\*\*/d')
+
+          gh release create "$TAG" \
+            "$DMG_PATH" \
+            --title "SimCast $VERSION" \
+            --notes "$NOTES"
+
+      # ── Cleanup ───────────────────────────────────────────
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          if [ -n "$KEYCHAIN_PATH" ] && security list-keychains | grep -q "$KEYCHAIN_PATH"; then
+            security delete-keychain "$KEYCHAIN_PATH"
+          fi
