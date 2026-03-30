@@ -21,13 +21,14 @@ Captures iOS Simulator windows, encodes to H.264, streams via LiveKit. Handles r
 - **No App Sandbox**
 - **Hardened Runtime** enabled (required for notarization)
 - Entitlements: `com.apple.security.screen-capture`, `com.apple.security.accessibility`, outgoing + incoming network connections
-- Supabase credentials in `Config.xcconfig` via `SupabaseURL` and `SupabaseAnonKey` keys (injected into Info.plist)
+- Supabase credentials entered by user at runtime via onboarding screen, stored in macOS Keychain (`KeychainService`)
 
 ## Architecture
 
 ```
 SimcastApp
-├── AuthManager          @Observable — Supabase auth state, exposes supabase client
+├── AuthManager          @Observable — Supabase auth state (unconfigured/unauthenticated/authenticated), optional supabase client, Keychain-backed config
+│   └── KeychainService  — reads/writes Supabase URL + Anon Key in macOS Keychain
 ├── SyncService          @Observable — Realtime channels, presence tracking, stream commands, per-simulator log broadcast
 │   ├── channel "user:{userId}"
 │   │   ├── presence track() — sessionId, userEmail, startedAt, simulators list, streamingUdids[]

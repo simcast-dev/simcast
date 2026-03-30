@@ -1,18 +1,18 @@
 import SwiftUI
 
-struct PermissionRequestView: View {
-    let permission: ScreenCapturePermission
+struct AccessibilityRequestView: View {
+    let permission: AccessibilityPermission
     @State private var pollingEnabled = false
 
     var body: some View {
         SetupPage(
-            title: "Screen Recording",
-            subtitle: "SimCast needs Screen Recording access to capture the iOS Simulator window.\nGo to System Settings → Privacy & Security → Screen Recording and enable SimCast.",
+            title: "Accessibility",
+            subtitle: "SimCast needs Accessibility access to detect the Simulator display area and inject touch input from the web.\nGo to System Settings → Privacy & Security → Accessibility and enable SimCast.",
             continueLabel: "Open System Settings",
             onContinue: openSettings
         ) {
             VStack(spacing: 16) {
-                Image(systemName: "rectangle.dashed.badge.record")
+                Image(systemName: "accessibility")
                     .font(.system(size: 64, weight: .thin))
                     .foregroundStyle(.secondary)
 
@@ -37,12 +37,12 @@ struct PermissionRequestView: View {
     private func openSettings() {
         pollingEnabled = true
         NSWorkspace.shared.open(
-            URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!
+            URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
         )
     }
 }
 
 #Preview {
-    PermissionRequestView(permission: ScreenCapturePermission())
+    AccessibilityRequestView(permission: AccessibilityPermission())
         .frame(width: 540, height: 460)
 }

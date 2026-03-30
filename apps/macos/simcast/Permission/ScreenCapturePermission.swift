@@ -17,8 +17,10 @@ final class ScreenCapturePermission {
         }
     }
 
-    // Polling because macOS doesn't provide a notification when screen capture
-    // permission is granted; must check periodically until the user approves.
+    func requestAccess() {
+        CGRequestScreenCaptureAccess()
+    }
+
     func pollUntilGranted() async {
         while !Task.isCancelled {
             if await canCapture() {

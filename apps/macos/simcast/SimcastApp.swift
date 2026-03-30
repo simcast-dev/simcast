@@ -11,39 +11,31 @@ import Supabase
 
 @main
 struct SimcastApp: App {
-    // @State preserves object identity across SwiftUI view updates, preventing
-    // services from being recreated when the App struct re-evaluates its body.
     @State private var auth: AuthManager
-    @State private var syncService: SyncService
+    @State private var syncService: SyncService?
     @State private var simulatorService = SimulatorService()
-    @State private var sckManager: SCKManager
-    @State private var appLogger = AppLogger()
+    @State private var sckManager: SCKManager?
+    @State private var appLogger: AppLogger
+    @State private var showWelcome = true
 
-    // Flat initialization order matters: services are created in dependency order
-    // so each can receive its dependencies as constructor arguments.
     init() {
         let auth = AuthManager()
         let logger = AppLogger()
-        let sckManager = SCKManager(supabase: auth.supabase, logger: logger)
         _auth = State(initialValue: auth)
-        _syncService = State(initialValue: SyncService(supabase: auth.supabase, logger: logger))
-        _sckManager = State(initialValue: sckManager)
         _appLogger = State(initialValue: logger)
+        _showWelcome = State(initialValue: auth.status == .unconfigured)
     }
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            contentView
                 .environment(auth)
-                .environment(syncService)
                 .environment(simulatorService)
-                .environment(sckManager)
                 .environment(appLogger)
                 .background(WindowCenterer())
-                // authStateChanges is an AsyncSequence that delivers auth lifecycle events,
-                // letting us react to token refreshes and external sign-outs without polling.
-                .task {
-                    for await (event, session) in auth.supabase.auth.authStateChanges {
+                .task(id: auth.supabase != nil) {
+                    guard let supabase = auth.supabase else { return }
+                    for await (event, session) in supabase.auth.authStateChanges {
                         switch event {
                         case .initialSession, .signedIn, .tokenRefreshed, .userUpdated:
                             auth.updateSession(session)
@@ -58,26 +50,71 @@ struct SimcastApp: App {
                     Task {
                         switch newStatus {
                         case .authenticated:
+                            if let supabase = auth.supabase {
+                                if syncService == nil {
+                                    syncService = SyncService(supabase: supabase, logger: appLogger)
+                                }
+                                if sckManager == nil {
+                                    sckManager = SCKManager(supabase: supabase, logger: appLogger)
+                                }
+                            }
                             if let userId = auth.userId, let email = auth.currentUserEmail {
-                                await syncService.start(userId: userId, email: email)
+                                await syncService?.start(userId: userId, email: email)
                                 appLogger.syncService = syncService
                             }
                         case .unauthenticated:
                             appLogger.syncService = nil
-                            await syncService.stop()
+                            await syncService?.stop()
+                        case .unconfigured:
+                            appLogger.syncService = nil
+                            await syncService?.stop()
+                            await sckManager?.stopAll()
+                            syncService = nil
+                            sckManager = nil
+                            showWelcome = true
                         }
                     }
                 }
         }
         .commands {
-            CommandMenu("User") {
-                Button("Log Out") {
+            CommandGroup(after: .appInfo) {
+                Divider()
+                Button("Sign Out") {
                     Task { await auth.signOut() }
                 }
-                .disabled(auth.status == .unauthenticated)
+                .disabled(auth.status != .authenticated)
+
+                Button("Remove Server Configuration") {
+                    auth.eraseConfiguration()
+                }
+                .disabled(auth.status == .unconfigured)
             }
         }
         .windowResizability(.contentSize)
+    }
+
+    @ViewBuilder
+    private var contentView: some View {
+        switch auth.status {
+        case .unconfigured:
+            if showWelcome {
+                WelcomeView(onContinue: { showWelcome = false })
+                    .frame(width: 540, height: 460)
+            } else {
+                ConfigurationView(auth: auth, onBack: { showWelcome = true })
+                    .frame(width: 540, height: 460)
+            }
+        case .unauthenticated:
+            LoginView(auth: auth)
+                .frame(width: 540, height: 460)
+        case .authenticated:
+            if let syncService, let sckManager {
+                ContentView()
+                    .environment(syncService)
+                    .environment(sckManager)
+                    .frame(width: 540, height: 460)
+            }
+        }
     }
 }
 

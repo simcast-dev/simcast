@@ -4,35 +4,66 @@ import Supabase
 
 @Observable
 final class AuthManager {
-    enum Status { case unauthenticated, authenticated }
+    enum Status { case unconfigured, unauthenticated, authenticated }
 
-    private(set) var status: Status = .unauthenticated
+    private(set) var status: Status
     private(set) var currentUserEmail: String?
     private(set) var userId: String?
+    private(set) var supabase: SupabaseClient?
 
-    let supabase: SupabaseClient = {
-        let info = Bundle.main.infoDictionary ?? [:]
-        guard
-            let urlString = info["SupabaseURL"] as? String,
-            let url = URL(string: urlString),
-            let key = info["SupabaseAnonKey"] as? String,
-            !key.isEmpty
-        else {
-            fatalError("Missing or invalid Supabase configuration — check SupabaseURL and SupabaseAnonKey in Info.plist and xcconfig")
+    init() {
+        if let urlString = KeychainService.read(key: "supabase_url"),
+           let url = URL(string: urlString),
+           let key = KeychainService.read(key: "supabase_anon_key"),
+           !key.isEmpty {
+            supabase = SupabaseClient(supabaseURL: url, supabaseKey: key)
+            status = .unauthenticated
+        } else {
+            supabase = nil
+            status = .unconfigured
         }
-        return SupabaseClient(supabaseURL: url, supabaseKey: key)
-    }()
+    }
+
+    func configure(url: String, anonKey: String) throws {
+        guard let parsedURL = URL(string: url), parsedURL.scheme == "https" else {
+            throw ConfigError.invalidURL
+        }
+        guard !anonKey.isEmpty else {
+            throw ConfigError.emptyKey
+        }
+        KeychainService.save(key: "supabase_url", value: url)
+        KeychainService.save(key: "supabase_anon_key", value: anonKey)
+        supabase = SupabaseClient(supabaseURL: parsedURL, supabaseKey: anonKey)
+        status = .unauthenticated
+    }
 
     func signIn(email: String, password: String) async throws {
+        guard let supabase else { return }
         let session = try await supabase.auth.signIn(email: email, password: password)
         currentUserEmail = session.user.email
         userId = session.user.id.uuidString.lowercased()
         status = .authenticated
     }
 
-    func signOut() async {
-        try? await supabase.auth.signOut()
-        clearSession()
+    func signOut(eraseConfiguration: Bool = false) async {
+        try? await supabase?.auth.signOut()
+        currentUserEmail = nil
+        userId = nil
+        if eraseConfiguration {
+            KeychainService.deleteAll()
+            supabase = nil
+            status = .unconfigured
+        } else {
+            status = .unauthenticated
+        }
+    }
+
+    func eraseConfiguration() {
+        KeychainService.deleteAll()
+        supabase = nil
+        currentUserEmail = nil
+        userId = nil
+        status = .unconfigured
     }
 
     func updateSession(_ session: Session?) {
@@ -46,5 +77,17 @@ final class AuthManager {
         status = .unauthenticated
         currentUserEmail = nil
         userId = nil
+    }
+}
+
+enum ConfigError: LocalizedError {
+    case invalidURL
+    case emptyKey
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidURL: "Enter a valid HTTPS URL"
+        case .emptyKey: "Anon key cannot be empty"
+        }
     }
 }

@@ -191,20 +191,6 @@ step "Setting LiveKit secrets"
   "LIVEKIT_API_SECRET=$LIVEKIT_API_SECRET")
 ok "Secrets set"
 
-# ── macOS app config ───────────────────────────────────────────────────────────
-
-step "Configuring macOS app"
-XCCONFIG="apps/macos/simcast/Config/Debug.xcconfig"
-if [ -f "$XCCONFIG" ]; then
-  warn "$XCCONFIG already exists — skipping (delete it and re-run to regenerate)"
-else
-  cat > "$XCCONFIG" <<EOF
-SUPABASE_URL = $SUPABASE_URL
-SUPABASE_ANON_KEY = $SUPABASE_ANON_KEY
-EOF
-  ok "Created $XCCONFIG"
-fi
-
 # ── Web app config ─────────────────────────────────────────────────────────────
 
 step "Configuring web dashboard"
@@ -235,7 +221,8 @@ echo -e "     open -a Simulator"
 echo ""
 echo -e "  2. ${BOLD}Run the macOS app:${NC}"
 echo -e "     open apps/macos/simcast.xcodeproj"
-echo -e "     ${DIM}Build and run with Cmd+R. Grant Screen Recording and Accessibility permissions when prompted.${NC}"
+echo -e "     ${DIM}Build and run with Cmd+R. The app will prompt for Supabase URL and Anon Key on first launch.${NC}"
+echo -e "     ${DIM}Grant Screen Recording and Accessibility permissions when prompted.${NC}"
 echo ""
 echo -e "  3. ${BOLD}Run the web dashboard:${NC}"
 echo -e "     cd apps/web && npm run dev"

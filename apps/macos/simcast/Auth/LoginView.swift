@@ -10,74 +10,35 @@ struct LoginView: View {
     @FocusState private var focusedField: LoginField?
 
     var body: some View {
-        VStack(spacing: 0) {
-            heroSection
-
-            VStack(spacing: 10) {
-                LoginTextField(placeholder: "e-mail", text: $email, isFocused: focusedField == .email)
+        SetupPage(
+            title: "Sign In",
+            subtitle: "Sign in with your SimCast account to start streaming.",
+            continueLabel: "Sign In",
+            canContinue: canSubmit,
+            onContinue: { Task { await signIn() } }
+        ) {
+            VStack(spacing: 12) {
+                LoginTextField(placeholder: "Email", text: $email, isFocused: focusedField == .email)
                     .focused($focusedField, equals: .email)
                     .autocorrectionDisabled()
 
-                LoginSecureField(placeholder: "password", text: $password, isFocused: focusedField == .password)
+                LoginSecureField(placeholder: "Password", text: $password, isFocused: focusedField == .password)
                     .focused($focusedField, equals: .password)
 
-                Text("Don't have an account yet?")
-                    .font(.system(size: 19))
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 6)
-
-                if let errorMessage {
-                    Text(errorMessage)
-                        .font(.system(size: 16))
-                        .foregroundStyle(.red)
-                }
-            }
-            .padding(.horizontal, 32)
-            .padding(.top, 32)
-
-            Spacer()
-
-            loginButton
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(NSColor.windowBackgroundColor))
-    }
-
-    // MARK: - Hero
-
-    private var heroSection: some View {
-        Image("HeroAbstract")
-            .resizable()
-            .scaledToFill()
-            .frame(maxWidth: .infinity)
-            .frame(height: 340)
-            .clipped()
-    }
-
-    // MARK: - Login button
-
-    private var loginButton: some View {
-        Button {
-            Task { await signIn() }
-        } label: {
-            ZStack {
-                Text("Login")
-                    .font(.system(size: 19, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .opacity(isLoading ? 0 : 1)
                 if isLoading {
                     ProgressView()
                         .controlSize(.small)
-                        .tint(.white)
+                        .padding(.top, 4)
+                }
+
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.red)
                 }
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 52)
-            .background(canSubmit ? Color.accentColor : Color.accentColor.opacity(0.4))
+            .padding(.horizontal, 48)
         }
-        .buttonStyle(.plain)
-        .disabled(!canSubmit)
-        .keyboardShortcut(.defaultAction)
     }
 
     private var canSubmit: Bool { !isLoading && !email.isEmpty && !password.isEmpty }
@@ -104,7 +65,7 @@ private struct LoginTextField: View {
     var body: some View {
         TextField(placeholder, text: $text)
             .textFieldStyle(.plain)
-            .font(.system(size: 15, weight: .bold))
+            .font(.system(size: 14))
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .background(Color(NSColor.textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
@@ -124,7 +85,7 @@ private struct LoginSecureField: View {
     var body: some View {
         SecureField(placeholder, text: $text)
             .textFieldStyle(.plain)
-            .font(.system(size: 15, weight: .bold))
+            .font(.system(size: 14))
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .background(Color(NSColor.textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
@@ -140,5 +101,5 @@ private enum LoginField: Hashable { case email, password }
 
 #Preview {
     LoginView(auth: AuthManager())
-        .frame(width: 540, height: 740)
+        .frame(width: 540, height: 460)
 }

@@ -17,17 +17,6 @@ struct StreamReadyHeader: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-
-            Menu {
-                Button("Log Out") { Task { await auth.signOut() } }
-            } label: {
-                Image(systemName: "gearshape")
-                    .font(.title2)
-                    .foregroundStyle(.secondary)
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
         }
     }
 }
