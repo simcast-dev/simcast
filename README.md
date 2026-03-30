@@ -110,7 +110,7 @@ After running both scripts, verify:
 
 ### 5. Deploy edge functions
 
-SimCast uses two Supabase Edge Functions to issue LiveKit tokens. Deploy them from the Supabase Dashboard:
+SimCast uses a Supabase Edge Function to issue LiveKit tokens. Deploy it from the Supabase Dashboard:
 
 1. Go to **Edge Functions** in your project dashboard
 2. Click **Create a new function**
@@ -133,21 +133,11 @@ Go to **Project Settings → Edge Functions** in the Supabase Dashboard and add 
 
 ### 7. Deploy the web dashboard
 
-**One-click deploy:**
-
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fsimcast-dev%2Fsimcast&root-directory=apps%2Fweb&env=NEXT_PUBLIC_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_ANON_KEY&envDescription=Supabase%20project%20credentials%20(Project%20Settings%20%E2%86%92%20API)&envLink=https%3A%2F%2Fsupabase.com%2Fdashboard&project-name=simcast&repository-name=simcast)
 
 Vercel will prompt for two environment variables:
 - `NEXT_PUBLIC_SUPABASE_URL` --- your project URL (e.g. `https://abcdefghijkl.supabase.co`)
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY` --- your anon key
-
-**Manual Vercel setup:**
-
-1. Import your fork/repo at [vercel.com/new](https://vercel.com/new)
-2. Set **Root Directory** to `apps/web`
-3. Framework preset will auto-detect as **Next.js**
-4. Add the two environment variables above
-5. Click **Deploy**
 
 **After deploying**, add your Vercel domain to Supabase's allowed redirect URLs:
 - Go to Supabase Dashboard → **Authentication** → **URL Configuration**
