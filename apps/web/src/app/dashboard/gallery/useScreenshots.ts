@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
+import type { RealtimeChannel } from "@supabase/supabase-js";
+
 
 export type Screenshot = {
   id: string;
@@ -14,7 +16,7 @@ export type Screenshot = {
   signedUrl?: string;
 };
 
-export function useScreenshots(userId: string, onNewItem?: (item: Screenshot) => void) {
+export function useScreenshots(userId: string, onNewItem?: (item: Screenshot) => void, channelHealth?: { reconnectKey: number; register: (ch: RealtimeChannel) => void; unregister: (ch: RealtimeChannel) => void }) {
   const [screenshots, setScreenshots] = useState<Screenshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,9 +63,9 @@ export function useScreenshots(userId: string, onNewItem?: (item: Screenshot) =>
     fetchScreenshots();
 
     const supabase = createClient();
-    const channel = supabase
-      .channel("screenshots-realtime")
-      .on(
+    const channel = supabase.channel("screenshots-realtime");
+    channelHealth?.register(channel);
+    channel.on(
         "postgres_changes" as never,
         { event: "INSERT", schema: "public", table: "screenshots", filter: `user_id=eq.${userId}` },
         async (payload: { new: Screenshot }) => {
@@ -78,8 +80,11 @@ export function useScreenshots(userId: string, onNewItem?: (item: Screenshot) =>
       )
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
-  }, [fetchScreenshots, userId]);
+    return () => {
+      channelHealth?.unregister(channel);
+      supabase.removeChannel(channel);
+    };
+  }, [fetchScreenshots, userId, channelHealth?.reconnectKey]);
 
   const loadMore = useCallback(() => {
     fetchScreenshots(screenshots.length);

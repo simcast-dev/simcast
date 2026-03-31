@@ -17,7 +17,7 @@ simcast/
 │   │   └── CLAUDE.md
 │   ├── web/                # Next.js 16 — dashboard, stream control, LiveKit viewer, interactive controls
 │   │   └── CLAUDE.md
-│   └── supabase/           # Database migrations, edge functions (livekit-token, livekit-guest-token), config
+│   └── supabase/           # Database migrations, edge functions (livekit-token), config
 ├── docs/                   # Design documents and assets
 └── .github/workflows/      # CI/CD — notarized DMG release pipeline
 ```

@@ -73,22 +73,29 @@ You need a Mac to run the capture app. The web dashboard is deployed to Vercel.
 ### 1. Create a Supabase project
 
 Go to [supabase.com/dashboard](https://supabase.com/dashboard) and create a new project. Note down:
-- **Project URL** --- `https://<project-ref>.supabase.co` (found in Project Settings → API)
-- **Anon Key** --- found in Project Settings → API
+- **Project URL** --- `https://<project-ref>.supabase.co` (found on the project overview page)
+- **Anon Key** --- go to **Project Settings → API Keys**, select the **Legacy API Keys** tab, and copy the `anon` key
 
 ### 2. Create a LiveKit Cloud project
 
 Go to [cloud.livekit.io](https://cloud.livekit.io) and create a new project. Note down:
-- **LiveKit URL** --- `wss://your-app.livekit.cloud`
-- **API Key** and **API Secret** --- found in Project Settings → Keys
+- **LiveKit URL** --- `wss://your-app.livekit.cloud` (shown at the top of your project dashboard, or in **Settings → Keys**)
+- **API Key** and **API Secret** --- go to **Settings → Keys**, select an API key, and click to reveal its secret
 
-### 3. Disable email confirmation
+### 3. Disable email confirmation and create a user
 
 By default, Supabase requires email verification on sign-up. Since SimCast doesn't need it:
 
-1. Go to Supabase Dashboard → **Authentication** → **Providers** → **Email**
-2. Turn off **Confirm email**
-3. Click **Save**
+1. Go to Supabase Dashboard → **Authentication** → **Sign In / Providers**
+2. Find the **Sign In / Providers** provider section
+3. In the **User Signups** area, uncheck **Confirm email**
+4. Click **Save Changes**
+
+Then create a user that will be used to sign in on both the macOS app and the web dashboard:
+
+1. Go to **Authentication** → **Users**
+2. Click **Add User** → **Create New User**
+3. Enter an email and password and click **Create User**
 
 ### 4. Set up the database
 
@@ -100,13 +107,12 @@ This creates the `screenshots` and `recordings` tables with row-level security p
 
 **Script 2** --- paste the contents of [`apps/supabase/migrations/20260325_create_stream_commands_and_storage.sql`](apps/supabase/migrations/20260325_create_stream_commands_and_storage.sql) and click **Run**.
 
-This creates the `stream_commands` and `streams` tables, `screenshots` and `recordings` storage buckets with per-user RLS policies, and enables Realtime for all tables.
+This creates the `stream_commands` and `streams` tables, `screenshots` and `recordings` storage buckets with per-user RLS policies, and enables Realtime for `stream_commands`, `screenshots`, and `recordings`.
 
 > Run these in order --- the second script builds on the first.
 
 After running both scripts, verify:
 - **Storage** → confirm `screenshots` and `recordings` buckets exist
-- **Database** → **Replication** → confirm `stream_commands`, `screenshots`, and `recordings` are listed under Realtime
 
 ### 5. Deploy edge functions
 
@@ -117,6 +123,8 @@ SimCast uses a Supabase Edge Function to issue LiveKit tokens. Deploy it from th
 3. Name it **`livekit-token`**
 4. Replace the default code with the contents of [`apps/supabase/functions/livekit-token/index.ts`](apps/supabase/functions/livekit-token/index.ts)
 5. Click **Deploy**
+6. After deploying, go to the function's **Settings** and disable **Verify JWT with legacy secret** --- the function handles authentication in code via `supabase.auth.getUser()`, and the legacy JWT gateway check will reject requests on projects using the new signing keys
+
 > The function name must match exactly: `livekit-token`.
 
 ### 6. Set edge function secrets
@@ -133,11 +141,16 @@ Go to **Project Settings → Edge Functions** in the Supabase Dashboard and add 
 
 ### 7. Deploy the web dashboard
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fsimcast-dev%2Fsimcast&root-directory=apps%2Fweb&env=NEXT_PUBLIC_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_ANON_KEY&envDescription=Supabase%20project%20credentials%20(Project%20Settings%20%E2%86%92%20API)&envLink=https%3A%2F%2Fsupabase.com%2Fdashboard&project-name=simcast&repository-name=simcast)
+**Fork the repository** --- Vercel requires a Pro tier to import from repositories you don't own. Fork [simcast-dev/simcast](https://github.com/simcast-dev/simcast) to your own GitHub account. You can sync your fork later to pull in updates from the upstream repository.
 
-Vercel will prompt for two environment variables:
-- `NEXT_PUBLIC_SUPABASE_URL` --- your project URL (e.g. `https://abcdefghijkl.supabase.co`)
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY` --- your anon key
+**Import into Vercel:**
+
+1. Go to [vercel.com/new](https://vercel.com/new), select **Import Git Repository**, and choose your forked repository
+2. In the **Configure Project** screen, set **Root Directory** to `apps/web` (the web dashboard is not in the repository root)
+3. Add the following **Environment Variables**:
+   - `NEXT_PUBLIC_SUPABASE_URL` --- your project URL (e.g. `https://abcdefghijkl.supabase.co`)
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` --- your anon key
+4. Click **Deploy**
 
 **After deploying**, add your Vercel domain to Supabase's allowed redirect URLs:
 - Go to Supabase Dashboard → **Authentication** → **URL Configuration**
@@ -146,10 +159,10 @@ Vercel will prompt for two environment variables:
 ### 8. Verify everything works
 
 1. Open your Vercel deployment URL
-2. Create an account (email + password) --- this is shared between macOS and web
-3. Sign in on both the web dashboard and the macOS app with the same account
+2. Sign in with the user account you created in step 3
+3. Sign in on the macOS app with the same account
 4. Boot a simulator (`open -a Simulator`) --- it should appear in the dashboard's stream grid
-5. Click **Start Stream** on a simulator card
+5. Click **Start Stream** on a simulator card --- on first run, macOS will prompt you to grant **Screen Recording** permission. Allow it and restart the app if needed.
 6. The live stream should appear in the viewer pane
 7. Try tapping on the stream, typing text, or pressing hardware buttons
 
@@ -179,6 +192,16 @@ simcast/
 | Input Injection | [axe](https://github.com/cameroncooke/AXe) CLI |
 
 ## Troubleshooting
+
+<details>
+<summary><b>General: streaming not starting or unexpected errors</b></summary>
+
+1. Quit the macOS app
+2. Wait for the simulators to disappear from the web dashboard
+3. Reopen the macOS app
+
+This resets presence and stream state cleanly.
+</details>
 
 <details>
 <summary><b>Black frames or no video</b></summary>
@@ -229,4 +252,4 @@ Ensure `NEXT_PUBLIC_SUPABASE_URL` in your Vercel environment variables matches y
 
 ## License
 
-MIT --- see [LICENSE](LICENSE) for details.
+MIT --- see LICENSE for details.

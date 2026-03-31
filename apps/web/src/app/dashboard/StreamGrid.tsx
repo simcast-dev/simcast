@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { DeviceIconBox, SimulatorDeviceInfo, SectionHeaderWithBadge, LoadingSpinner } from "./ui";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 import { usePresenceSubscription, formatDuration } from "./hooks/usePresenceSubscription";
 
 export default function StreamGrid({
@@ -12,6 +13,7 @@ export default function StreamGrid({
   onNameMap,
   watchingUdid = null,
   userId,
+  channelHealth,
 }: {
   onSelect: (udid: string | null) => void;
   onStreamingChange?: (udids: Set<string>) => void;
@@ -19,8 +21,9 @@ export default function StreamGrid({
   onNameMap?: (names: Map<string, string>) => void;
   watchingUdid?: string | null;
   userId: string;
+  channelHealth?: { reconnectKey: number; register: (ch: RealtimeChannel) => void; unregister: (ch: RealtimeChannel) => void };
 }) {
-  const { cards, streamingUdids } = usePresenceSubscription(userId, onStreamingChange);
+  const { cards, streamingUdids } = usePresenceSubscription(userId, onStreamingChange, channelHealth);
   const [pendingUdids, setPendingUdids] = useState<Set<string>>(new Set());
   const onSelectRef = useRef(onSelect);
   const autoWatchRef = useRef<string | null>(null);

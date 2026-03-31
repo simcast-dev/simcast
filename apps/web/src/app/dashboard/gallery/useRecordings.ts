@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
+import type { RealtimeChannel } from "@supabase/supabase-js";
+
 
 export type Recording = {
   id: string;
@@ -16,7 +18,7 @@ export type Recording = {
   signedUrl?: string;
 };
 
-export function useRecordings(userId: string, onNewItem?: (item: Recording) => void) {
+export function useRecordings(userId: string, onNewItem?: (item: Recording) => void, channelHealth?: { reconnectKey: number; register: (ch: RealtimeChannel) => void; unregister: (ch: RealtimeChannel) => void }) {
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -63,9 +65,9 @@ export function useRecordings(userId: string, onNewItem?: (item: Recording) => v
     fetchRecordings();
 
     const supabase = createClient();
-    const channel = supabase
-      .channel("recordings-realtime")
-      .on(
+    const channel = supabase.channel("recordings-realtime");
+    channelHealth?.register(channel);
+    channel.on(
         "postgres_changes" as never,
         { event: "INSERT", schema: "public", table: "recordings", filter: `user_id=eq.${userId}` },
         async (payload: { new: Recording }) => {
@@ -80,8 +82,11 @@ export function useRecordings(userId: string, onNewItem?: (item: Recording) => v
       )
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
-  }, [fetchRecordings, userId]);
+    return () => {
+      channelHealth?.unregister(channel);
+      supabase.removeChannel(channel);
+    };
+  }, [fetchRecordings, userId, channelHealth?.reconnectKey]);
 
   const loadMore = useCallback(() => {
     fetchRecordings(recordings.length);

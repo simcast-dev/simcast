@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useCallback, useMemo, useEffect } from "react";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 import { useRecordings, type Recording } from "./useRecordings";
 import VideoPreviewModal from "./VideoPreviewModal";
 
@@ -140,8 +141,8 @@ function SkeletonGrid() {
   );
 }
 
-export default function RecordingGallery({ userId, onNewItem }: { userId: string; onNewItem?: (item: Recording) => void }) {
-  const { recordings, loading, error, hasMore, loadMore, deleteRecording, deleteMultiple, refresh } = useRecordings(userId, onNewItem);
+export default function RecordingGallery({ userId, onNewItem, channelHealth }: { userId: string; onNewItem?: (item: Recording) => void; channelHealth?: { reconnectKey: number; register: (ch: RealtimeChannel) => void; unregister: (ch: RealtimeChannel) => void } }) {
+  const { recordings, loading, error, hasMore, loadMore, deleteRecording, deleteMultiple, refresh } = useRecordings(userId, onNewItem, channelHealth);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [preview, setPreview] = useState<Recording | null>(null);
 

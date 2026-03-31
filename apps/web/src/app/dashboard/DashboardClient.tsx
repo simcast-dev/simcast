@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast, Toaster } from "sonner";
 import StreamGrid from "./StreamGrid";
 import SimulatorViewer from "./SimulatorViewer";
@@ -14,6 +14,7 @@ import { useLogStream } from "./hooks/useLogStream";
 import { useSimulatorChannel } from "./hooks/useSimulatorChannel";
 import LogDrawer from "./components/LogDrawer";
 import { PageVisibilityProvider } from "./contexts/PageVisibilityContext";
+import { useReconnectKey } from "./hooks/useReconnectKey";
 
 export default function DashboardClient({ userEmail, userId }: { userEmail: string | undefined; userId: string }) {
   const [watchingUdid, setWatchingUdid] = useState<string | null>(null);
@@ -49,8 +50,21 @@ export default function DashboardClient({ userEmail, userId }: { userEmail: stri
     });
   }, []);
 
+  const { reconnectKey, registerChannel, unregisterChannel } = useReconnectKey();
+  const channelHealth = useMemo(() => ({
+    reconnectKey,
+    register: registerChannel,
+    unregister: unregisterChannel,
+  }), [reconnectKey, registerChannel, unregisterChannel]);
+
+  useEffect(() => {
+    if (reconnectKey > 0) {
+      toast("Reconnecting to real-time channels…", { duration: 2000 });
+    }
+  }, [reconnectKey]);
+
   const { logs, errorCount, addLog, clearLogs } = useLogStream();
-  const { sendClearLogs } = useSimulatorChannel(watchingUdid, addLog);
+  const { sendClearLogs } = useSimulatorChannel(watchingUdid, addLog, channelHealth);
   const handleClearLogs = useCallback(() => {
     clearLogs();
     sendClearLogs();
@@ -242,7 +256,7 @@ export default function DashboardClient({ userEmail, userId }: { userEmail: stri
             }}
           >
             <div className="px-6 pt-6 pb-2 h-full">
-              <StreamGrid onSelect={setWatchingUdid} onStreamingChange={setStreamingUdids} onNameMap={setSimulatorNames} watchingUdid={watchingUdid} userId={userId} />
+              <StreamGrid onSelect={setWatchingUdid} onStreamingChange={setStreamingUdids} onNameMap={setSimulatorNames} watchingUdid={watchingUdid} userId={userId} channelHealth={channelHealth} />
             </div>
           </div>
           <div className="flex flex-col" style={{ width: "60%" }}>
@@ -253,13 +267,13 @@ export default function DashboardClient({ userEmail, userId }: { userEmail: stri
           className="overflow-y-auto h-full"
           style={{ display: activeView === "screenshots" ? "block" : "none" }}
         >
-          <ScreenshotGallery userId={userId} onNewItem={onNewScreenshot} />
+          <ScreenshotGallery userId={userId} onNewItem={onNewScreenshot} channelHealth={channelHealth} />
         </div>
         <div
           className="overflow-y-auto h-full"
           style={{ display: activeView === "recordings" ? "block" : "none" }}
         >
-          <RecordingGallery userId={userId} onNewItem={onNewRecording} />
+          <RecordingGallery userId={userId} onNewItem={onNewRecording} channelHealth={channelHealth} />
         </div>
       </div>
 

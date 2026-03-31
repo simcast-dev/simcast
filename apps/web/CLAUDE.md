@@ -70,7 +70,6 @@ src/
 | Function | Purpose |
 |----------|---------|
 | `livekit-token` | Issues LiveKit JWT for authenticated users (publisher or subscriber) |
-| `livekit-guest-token` | Issues short-lived guest JWT (no auth required) for guest share links (edge function deployed, web route not yet implemented) |
 
 ## Command Flow (Web → macOS)
 

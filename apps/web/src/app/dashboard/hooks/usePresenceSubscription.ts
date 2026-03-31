@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import type { RealtimeChannel } from "@supabase/supabase-js";
+
 
 export type SimulatorPresence = {
   udid: string;
@@ -41,6 +43,7 @@ export function formatDuration(isoTimestamp: string): string {
 export function usePresenceSubscription(
   userId: string,
   onStreamingChange?: (udids: Set<string>) => void,
+  channelHealth?: { reconnectKey: number; register: (ch: RealtimeChannel) => void; unregister: (ch: RealtimeChannel) => void },
 ) {
   const [cards, setCards] = useState<SimulatorCard[]>([]);
   const [streamingUdids, setStreamingUdids] = useState<Set<string>>(new Set());
@@ -48,6 +51,7 @@ export function usePresenceSubscription(
   useEffect(() => {
     const supabase = createClient();
     const channel = supabase.channel(`user:${userId}`);
+    channelHealth?.register(channel);
 
     const syncCards = () => {
       const state = channel.presenceState<SessionPresence>();
@@ -93,10 +97,11 @@ export function usePresenceSubscription(
       .subscribe();
 
     return () => {
+      channelHealth?.unregister(channel);
       channel.unsubscribe();
       supabase.removeChannel(channel);
     };
-  }, [userId]);
+  }, [userId, channelHealth?.reconnectKey]);
 
   return { cards, streamingUdids };
 }
