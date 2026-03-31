@@ -26,6 +26,12 @@ Stream commands and presence are coordinated in real time through [Supabase Real
 
 No Xcode required on the viewer side.
 
+<p align="center">
+  <a href="https://vimeo.com/1178984480">
+    <img src="https://vumbnail.com/1178984480.jpg" alt="SimCast demo video" width="800" />
+  </a>
+</p>
+
 ## Features
 
 **Stream any simulator, instantly**
