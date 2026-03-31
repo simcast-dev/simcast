@@ -28,7 +28,7 @@ No Xcode required on the viewer side.
 
 <p align="center">
   <a href="https://vimeo.com/1178984480">
-    <img src="https://vumbnail.com/1178984480.jpg" alt="SimCast demo video" width="800" />
+    <img src="https://i.vimeocdn.com/video/2140709760-90724eb1f059b7bbe7d5103add2cb5e8d501741687ce86c00b39d661f6ec6249-d_1280" alt="SimCast demo video" width="800" />
   </a>
 </p>
 
