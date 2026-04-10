@@ -11,7 +11,11 @@ import Supabase
 
 @main
 struct SimcastApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var auth: AuthManager
+    @State private var appearancePreferences: AppAppearancePreferences
+    @State private var appLifecycle: AppLifecycleController
+    @State private var launchAtLoginService: LaunchAtLoginService
     @State private var syncService: SyncService?
     @State private var simulatorService = SimulatorService()
     @State private var sckManager: SCKManager?
@@ -21,18 +25,26 @@ struct SimcastApp: App {
     init() {
         let auth = AuthManager()
         let logger = AppLogger()
+        let appearancePreferences = AppAppearancePreferences.shared
+        let appLifecycle = AppLifecycleController.shared
+        let launchAtLoginService = LaunchAtLoginService()
         _auth = State(initialValue: auth)
+        _appearancePreferences = State(initialValue: appearancePreferences)
+        _appLifecycle = State(initialValue: appLifecycle)
+        _launchAtLoginService = State(initialValue: launchAtLoginService)
         _appLogger = State(initialValue: logger)
         _showWelcome = State(initialValue: auth.status == .unconfigured)
     }
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup("SimCast", id: AppLifecycleController.mainWindowID) {
             contentView
                 .environment(auth)
+                .environment(appearancePreferences)
+                .environment(appLifecycle)
                 .environment(simulatorService)
                 .environment(appLogger)
-                .background(WindowCenterer())
+                .background(MainWindowBridge(appLifecycle: appLifecycle))
                 .animation(.easeInOut(duration: 0.2), value: auth.status)
                 .task {
                     await auth.bootstrap()
@@ -82,9 +94,20 @@ struct SimcastApp: App {
                     }
                 }
         }
+        .defaultLaunchBehavior(.presented)
         .commands {
+            CommandGroup(replacing: .newItem) {
+                Button("Open SimCast") {
+                    appLifecycle.showMainWindow()
+                }
+            }
+
             CommandGroup(after: .appInfo) {
                 Divider()
+                Button("Open SimCast") {
+                    appLifecycle.showMainWindow()
+                }
+
                 Button("Sign Out") {
                     Task { await auth.signOut() }
                 }
@@ -97,6 +120,27 @@ struct SimcastApp: App {
             }
         }
         .windowResizability(.contentSize)
+
+        MenuBarExtra {
+            MenuBarView(
+                auth: auth,
+                appearancePreferences: appearancePreferences,
+                appLifecycle: appLifecycle,
+                simulatorService: simulatorService,
+                sckManager: sckManager
+            )
+            .environment(appLogger)
+        } label: {
+            Label("SimCast", systemImage: "dot.radiowaves.left.and.right")
+        }
+
+        Settings {
+            SettingsView(
+                appearancePreferences: appearancePreferences,
+                launchAtLoginService: launchAtLoginService,
+                auth: auth
+            )
+        }
     }
 
     @ViewBuilder
@@ -134,16 +178,4 @@ struct SimcastApp: App {
             }
         }
     }
-}
-
-private struct WindowCenterer: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async {
-            view.window?.center()
-        }
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {}
 }
