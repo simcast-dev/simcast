@@ -5,6 +5,10 @@ import Supabase
 @Observable
 final class AuthManager {
     enum Status { case launching, unconfigured, unauthenticated, authenticated }
+    private enum Key {
+        static let supabaseURL = "supabase_url"
+        static let supabaseAnonKey = "supabase_anon_key"
+    }
 
     private(set) var status: Status
     private(set) var currentUserEmail: String?
@@ -12,11 +16,19 @@ final class AuthManager {
     private(set) var supabase: SupabaseClient?
     private(set) var launchMessage: String
 
+    var configuredSupabaseURL: String? {
+        KeychainService.read(key: Key.supabaseURL)
+    }
+
+    var configuredAnonKey: String? {
+        KeychainService.read(key: Key.supabaseAnonKey)
+    }
+
     init() {
         status = .launching
-        if let urlString = KeychainService.read(key: "supabase_url"),
+        if let urlString = KeychainService.read(key: Key.supabaseURL),
            let url = URL(string: urlString),
-           let key = KeychainService.read(key: "supabase_anon_key"),
+           let key = KeychainService.read(key: Key.supabaseAnonKey),
            !key.isEmpty {
             supabase = SupabaseClient(supabaseURL: url, supabaseKey: key)
             launchMessage = "Restoring your saved session."
@@ -53,8 +65,8 @@ final class AuthManager {
         guard !anonKey.isEmpty else {
             throw ConfigError.emptyKey
         }
-        KeychainService.save(key: "supabase_url", value: url)
-        KeychainService.save(key: "supabase_anon_key", value: anonKey)
+        KeychainService.save(key: Key.supabaseURL, value: url)
+        KeychainService.save(key: Key.supabaseAnonKey, value: anonKey)
         supabase = SupabaseClient(supabaseURL: parsedURL, supabaseKey: anonKey)
         launchMessage = "Checking your SimCast setup."
         status = .unauthenticated
