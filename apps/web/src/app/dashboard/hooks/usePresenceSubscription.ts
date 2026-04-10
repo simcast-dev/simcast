@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { RealtimeChannel } from "@supabase/supabase-js";
+import { logDebug, logDebugError } from "@/lib/debug";
+import { shouldReconnectForStatus, type ChannelHealth } from "@/lib/realtime";
 
 
 export type SimulatorPresence = {
@@ -31,6 +32,8 @@ export type SimulatorCard = {
   orderIndex: number;
 };
 
+export type PresenceSyncState = "syncing" | "live" | "stale";
+
 export function formatDuration(isoTimestamp: string): string {
   const diffMs = Date.now() - new Date(isoTimestamp).getTime();
   const minutes = Math.floor(diffMs / 60000);
@@ -43,15 +46,22 @@ export function formatDuration(isoTimestamp: string): string {
 export function usePresenceSubscription(
   userId: string,
   onStreamingChange?: (udids: Set<string>) => void,
-  channelHealth?: { reconnectKey: number; register: (ch: RealtimeChannel) => void; unregister: (ch: RealtimeChannel) => void },
+  channelHealth?: ChannelHealth,
 ) {
   const [cards, setCards] = useState<SimulatorCard[]>([]);
   const [streamingUdids, setStreamingUdids] = useState<Set<string>>(new Set());
+  const [channelStatus, setChannelStatus] = useState<string>("CONNECTING");
+  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
     const channel = supabase.channel(`user:${userId}`);
+    setChannelStatus("CONNECTING");
     channelHealth?.register(channel);
+    logDebug("presence", "opening user presence channel", {
+      userId,
+      reconnectKey: channelHealth?.reconnectKey ?? 0,
+    });
 
     const syncCards = () => {
       const state = channel.presenceState<SessionPresence>();
@@ -86,7 +96,18 @@ export function usePresenceSubscription(
       next.sort((a, b) => a.orderIndex - b.orderIndex);
       setCards(next);
       setStreamingUdids(foundStreamingUdids);
+      setLastSyncAt(new Date().toISOString());
       onStreamingChange?.(foundStreamingUdids);
+      logDebug("presence", "presence sync applied", {
+        userId,
+        sessions: Object.keys(state).length,
+        simulators: next.map(card => ({
+          udid: card.id,
+          name: card.name,
+          osVersion: card.osVersion,
+        })),
+        streamingUdids: Array.from(foundStreamingUdids),
+      });
     };
 
     // All three events needed: sync for initial state + periodic refreshes; join/leave for real-time additions/removals
@@ -94,14 +115,51 @@ export function usePresenceSubscription(
       .on("presence", { event: "sync" }, syncCards)
       .on("presence", { event: "join" }, syncCards)
       .on("presence", { event: "leave" }, syncCards)
-      .subscribe();
+      .subscribe((status, err) => {
+        if (err) {
+          setChannelStatus(status);
+          logDebugError("presence", "user presence channel reported an error", err, {
+            userId,
+            status,
+            topic: channel.topic,
+          });
+          channelHealth?.requestReconnect("presence-subscribe-error", {
+            userId,
+            status,
+            topic: channel.topic,
+          });
+          return;
+        }
+
+        setChannelStatus(status);
+        logDebug("presence", "user presence channel status changed", {
+          userId,
+          status,
+          topic: channel.topic,
+        });
+        if (shouldReconnectForStatus(status)) {
+          channelHealth?.requestReconnect("presence-status", {
+            userId,
+            status,
+            topic: channel.topic,
+          });
+        }
+      });
 
     return () => {
       channelHealth?.unregister(channel);
+      logDebug("presence", "closing user presence channel", {
+        userId,
+        topic: channel.topic,
+      });
       channel.unsubscribe();
       supabase.removeChannel(channel);
     };
   }, [userId, channelHealth?.reconnectKey]);
 
-  return { cards, streamingUdids };
+  const syncState: PresenceSyncState = channelStatus === "SUBSCRIBED"
+    ? "live"
+    : (cards.length > 0 || lastSyncAt ? "stale" : "syncing");
+
+  return { cards, streamingUdids, syncState, lastSyncAt, channelStatus };
 }

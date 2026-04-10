@@ -1,15 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
+import { logDebug, logDebugError } from "@/lib/debug";
+import type { ChannelHealth } from "@/lib/realtime";
 import { DeviceIconBox, SimulatorDeviceInfo, SectionHeaderWithBadge, LoadingSpinner } from "./ui";
-import type { RealtimeChannel } from "@supabase/supabase-js";
-import { usePresenceSubscription, formatDuration } from "./hooks/usePresenceSubscription";
+import { usePresenceSubscription, formatDuration, type PresenceSyncState } from "./hooks/usePresenceSubscription";
 
 export default function StreamGrid({
   onSelect,
   onStreamingChange,
   onSessionSummary,
+  onSyncStatus,
   onNameMap,
   watchingUdid = null,
   userId,
@@ -18,15 +21,30 @@ export default function StreamGrid({
   onSelect: (udid: string | null) => void;
   onStreamingChange?: (udids: Set<string>) => void;
   onSessionSummary?: (s: { count: number; streamingName: string | null }) => void;
+  onSyncStatus?: (status: { syncState: PresenceSyncState; lastSyncAt: string | null }) => void;
   onNameMap?: (names: Map<string, string>) => void;
   watchingUdid?: string | null;
   userId: string;
-  channelHealth?: { reconnectKey: number; register: (ch: RealtimeChannel) => void; unregister: (ch: RealtimeChannel) => void };
+  channelHealth?: ChannelHealth;
 }) {
-  const { cards, streamingUdids } = usePresenceSubscription(userId, onStreamingChange, channelHealth);
+  const { cards, streamingUdids, syncState, lastSyncAt } = usePresenceSubscription(userId, onStreamingChange, channelHealth);
   const [pendingUdids, setPendingUdids] = useState<Set<string>>(new Set());
   const onSelectRef = useRef(onSelect);
   const autoWatchRef = useRef<string | null>(null);
+  const commandsDisabled = syncState !== "live";
+  const statusMessage = syncState === "syncing"
+    ? "Connecting to realtime sync…"
+    : syncState === "stale"
+      ? `Realtime sync is reconnecting${lastSyncAt ? ` · last update ${formatDuration(lastSyncAt)} ago` : ""}`
+      : null;
+
+  const clearPending = (udid: string) => {
+    setPendingUdids(prev => {
+      const next = new Set(prev);
+      next.delete(udid);
+      return next;
+    });
+  };
 
   useEffect(() => {
     onSelectRef.current = onSelect;
@@ -44,6 +62,12 @@ export default function StreamGrid({
   useEffect(() => {
     if (pendingUdids.size === 0) return;
     const timer = setTimeout(() => {
+      logDebug("command", "pending command timeout expired", {
+        pendingUdids: Array.from(pendingUdids),
+      });
+      toast("No response from the mac app", {
+        description: "The command was sent, but simulator state did not update within 12 seconds.",
+      });
       setPendingUdids(new Set());
       autoWatchRef.current = null;
     }, 12000);
@@ -54,14 +78,87 @@ export default function StreamGrid({
     if (cards.length === 0) onSelectRef.current(null);
     const streamingCard = cards.find(c => streamingUdids.has(c.id));
     onSessionSummary?.({ count: cards.length, streamingName: streamingCard?.name ?? null });
+    onSyncStatus?.({ syncState, lastSyncAt });
     onNameMap?.(new Map(cards.map(c => [c.id, c.name])));
-  }, [cards, streamingUdids]);
+  }, [cards, streamingUdids, syncState, lastSyncAt, onSessionSummary, onSyncStatus, onNameMap]);
 
   const sendCommand = async (action: "start" | "stop", udid: string) => {
     const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    await supabase.from("stream_commands").insert({ user_id: user.id, action, udid });
+    logDebug("command", "sending stream command", { action, udid });
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError) {
+      logDebugError("command", "failed to resolve current user before sending command", userError, {
+        action,
+        udid,
+      });
+      return false;
+    }
+
+    if (!user) {
+      logDebug("command", "skipping command because there is no authenticated user", {
+        action,
+        udid,
+      });
+      return false;
+    }
+
+    const { error } = await supabase.from("stream_commands").insert({ user_id: user.id, action, udid });
+
+    if (error) {
+      logDebugError("command", "stream command insert failed", error, {
+        action,
+        udid,
+        userId: user.id,
+      });
+      return false;
+    }
+
+    logDebug("command", "stream command inserted", {
+      action,
+      udid,
+      userId: user.id,
+    });
+    return true;
+  };
+
+  const handleStart = (udid: string) => {
+    autoWatchRef.current = udid;
+    setPendingUdids(prev => new Set(prev).add(udid));
+
+    void (async () => {
+      const inserted = await sendCommand("start", udid);
+      if (inserted) return;
+
+      clearPending(udid);
+      if (autoWatchRef.current === udid) {
+        autoWatchRef.current = null;
+      }
+      toast("Failed to send start command", {
+        description: "Check the browser console for the Supabase error details.",
+      });
+    })();
+  };
+
+  const handleStop = (udid: string, isWatching: boolean) => {
+    setPendingUdids(prev => new Set(prev).add(udid));
+
+    void (async () => {
+      const inserted = await sendCommand("stop", udid);
+      if (inserted) {
+        if (isWatching) onSelect(null);
+        return;
+      }
+
+      clearPending(udid);
+      toast("Failed to send stop command", {
+        description: "Check the browser console for the Supabase error details.",
+      });
+    })();
   };
 
   if (cards.length === 0) {
@@ -83,9 +180,13 @@ export default function StreamGrid({
             <circle cx="8" cy="12" r="0.7" fill="currentColor" stroke="none" />
           </svg>
         </div>
-        <p className="font-semibold mb-2" style={{ color: "var(--text)" }}>No active sessions</p>
+        <p className="font-semibold mb-2" style={{ color: "var(--text)" }}>
+          {syncState === "live" ? "No active sessions" : "Realtime sync unavailable"}
+        </p>
         <p className="text-sm text-center max-w-xs leading-relaxed" style={{ color: "var(--text-2)" }}>
-          Open the SimCast macOS app and hit Play on a simulator to start broadcasting.
+          {syncState === "live"
+            ? "Open the SimCast macOS app and hit Play on a simulator to start broadcasting."
+            : "The dashboard is reconnecting to realtime services. Simulator state may be temporarily out of date."}
         </p>
       </div>
     );
@@ -111,7 +212,21 @@ export default function StreamGrid({
       <SectionHeaderWithBadge
         title="Active simulators"
         count={cards.length}
-        trailing={<span style={{ fontSize: "var(--font-size-xs)", color: "var(--text-3)" }}>{sessionUptime}</span>}
+        trailing={
+          <div className="flex items-center gap-2">
+            {statusMessage && (
+              <span
+                style={{
+                  fontSize: "var(--font-size-xs)",
+                  color: syncState === "stale" ? "var(--error-text)" : "var(--text-3)",
+                }}
+              >
+                {statusMessage}
+              </span>
+            )}
+            <span style={{ fontSize: "var(--font-size-xs)", color: "var(--text-3)" }}>{sessionUptime}</span>
+          </div>
+        }
         style={{ marginBottom: 12 }}
       />
       <div className="flex flex-col gap-4">
@@ -187,15 +302,16 @@ export default function StreamGrid({
                       title="Stop streaming"
                       onClick={(e) => {
                         e.stopPropagation();
-                        setPendingUdids(prev => new Set(prev).add(card.id));
-                        void sendCommand("stop", card.id);
-                        if (watchingUdid === card.id) onSelect(null);
+                        handleStop(card.id, watchingUdid === card.id);
                       }}
+                      disabled={commandsDisabled}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 hover:scale-[1.04]"
                       style={{
                         background: "var(--btn-danger-bg)",
                         border: "1px solid var(--btn-danger-border)",
                         color: "var(--btn-danger-text)",
+                        opacity: commandsDisabled ? 0.6 : 1,
+                        cursor: commandsDisabled ? "not-allowed" : "pointer",
                       }}
                     >
                       <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
@@ -224,11 +340,9 @@ export default function StreamGrid({
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        autoWatchRef.current = card.id;
-                        setPendingUdids(prev => new Set(prev).add(card.id));
-                        void sendCommand("start", card.id);
+                        handleStart(card.id);
                       }}
-                      disabled={pendingUdids.has(card.id)}
+                      disabled={pendingUdids.has(card.id) || commandsDisabled}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 hover:scale-[1.04] disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
                       style={{
                         background: "var(--btn-primary-from)",

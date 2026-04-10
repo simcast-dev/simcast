@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { RealtimeChannel } from "@supabase/supabase-js";
+import { logDebug, logDebugError } from "@/lib/debug";
+import { shouldReconnectForStatus, type ChannelHealth } from "@/lib/realtime";
 
 
 export type Recording = {
@@ -18,7 +19,7 @@ export type Recording = {
   signedUrl?: string;
 };
 
-export function useRecordings(userId: string, onNewItem?: (item: Recording) => void, channelHealth?: { reconnectKey: number; register: (ch: RealtimeChannel) => void; unregister: (ch: RealtimeChannel) => void }) {
+export function useRecordings(userId: string, onNewItem?: (item: Recording) => void, channelHealth?: ChannelHealth) {
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +81,34 @@ export function useRecordings(userId: string, onNewItem?: (item: Recording) => v
           onNewItem?.(item);
         }
       )
-      .subscribe();
+      .subscribe((status, err) => {
+        if (err) {
+          logDebugError("gallery", "recordings channel reported an error", err, {
+            userId,
+            status,
+            topic: channel.topic,
+          });
+          channelHealth?.requestReconnect("recordings-channel-error", {
+            userId,
+            status,
+            topic: channel.topic,
+          });
+          return;
+        }
+
+        logDebug("gallery", "recordings channel status changed", {
+          userId,
+          status,
+          topic: channel.topic,
+        });
+        if (shouldReconnectForStatus(status)) {
+          channelHealth?.requestReconnect("recordings-channel-status", {
+            userId,
+            status,
+            topic: channel.topic,
+          });
+        }
+      });
 
     return () => {
       channelHealth?.unregister(channel);

@@ -15,6 +15,7 @@ import { useSimulatorChannel } from "./hooks/useSimulatorChannel";
 import LogDrawer from "./components/LogDrawer";
 import { PageVisibilityProvider } from "./contexts/PageVisibilityContext";
 import { useReconnectKey } from "./hooks/useReconnectKey";
+import type { PresenceSyncState } from "./hooks/usePresenceSubscription";
 
 export default function DashboardClient({ userEmail, userId }: { userEmail: string | undefined; userId: string }) {
   const [watchingUdid, setWatchingUdid] = useState<string | null>(null);
@@ -22,6 +23,8 @@ export default function DashboardClient({ userEmail, userId }: { userEmail: stri
   const [simulatorNames, setSimulatorNames] = useState<Map<string, string>>(new Map());
   const [activeView, setActiveView] = useState<"stream" | "screenshots" | "recordings">("stream");
   const [streamStats, setStreamStats] = useState<VideoStats | null>(null);
+  const [presenceSyncState, setPresenceSyncState] = useState<PresenceSyncState>("syncing");
+  const [presenceLastSyncAt, setPresenceLastSyncAt] = useState<string | null>(null);
   const handleStats = useCallback((s: VideoStats | null) => setStreamStats(s), []);
   const activeViewRef = useRef(activeView);
   activeViewRef.current = activeView;
@@ -50,12 +53,13 @@ export default function DashboardClient({ userEmail, userId }: { userEmail: stri
     });
   }, []);
 
-  const { reconnectKey, registerChannel, unregisterChannel } = useReconnectKey();
+  const { reconnectKey, registerChannel, unregisterChannel, requestReconnect } = useReconnectKey();
   const channelHealth = useMemo(() => ({
     reconnectKey,
     register: registerChannel,
     unregister: unregisterChannel,
-  }), [reconnectKey, registerChannel, unregisterChannel]);
+    requestReconnect,
+  }), [reconnectKey, registerChannel, unregisterChannel, requestReconnect]);
 
   useEffect(() => {
     if (reconnectKey > 0) {
@@ -81,6 +85,35 @@ export default function DashboardClient({ userEmail, userId }: { userEmail: stri
     }
   }, [streamingUdids, watchingUdid]);
 
+  const realtimeBadge = (() => {
+    if (presenceSyncState === "live") {
+      return {
+        label: "Realtime Live",
+        description: presenceLastSyncAt ? `Updated ${new Date(presenceLastSyncAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "Connected",
+        color: "var(--emerald)",
+        background: "rgba(16, 185, 129, 0.12)",
+        border: "rgba(16, 185, 129, 0.28)",
+      };
+    }
+
+    if (presenceSyncState === "stale") {
+      return {
+        label: "Realtime Reconnecting",
+        description: presenceLastSyncAt ? `Last sync ${new Date(presenceLastSyncAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "Waiting for sync",
+        color: "#f59e0b",
+        background: "rgba(245, 158, 11, 0.12)",
+        border: "rgba(245, 158, 11, 0.28)",
+      };
+    }
+
+    return {
+      label: "Realtime Connecting",
+      description: "Joining channels",
+      color: "var(--text-3)",
+      background: "var(--badge-bg)",
+      border: "var(--badge-border)",
+    };
+  })();
 
   return (
     <div
@@ -237,6 +270,37 @@ export default function DashboardClient({ userEmail, userId }: { userEmail: stri
           </nav>
 
           <div className="flex items-center gap-4">
+            <div
+              title={realtimeBadge.description}
+              className="flex items-center gap-2"
+              style={{
+                padding: "8px 12px",
+                borderRadius: "999px",
+                background: realtimeBadge.background,
+                border: `1px solid ${realtimeBadge.border}`,
+                color: realtimeBadge.color,
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05)",
+              }}
+            >
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  background: realtimeBadge.color,
+                  boxShadow: `0 0 10px ${realtimeBadge.color}`,
+                  flexShrink: 0,
+                }}
+              />
+              <div className="flex flex-col" style={{ lineHeight: 1.05 }}>
+                <span style={{ fontSize: "var(--font-size-xs)", fontWeight: "var(--font-weight-bold)", letterSpacing: "var(--tracking-wide)" }}>
+                  {realtimeBadge.label}
+                </span>
+                <span style={{ fontSize: "10px", color: "var(--text-3)" }}>
+                  {realtimeBadge.description}
+                </span>
+              </div>
+            </div>
             <ThemeSelector />
             <UserMenu userEmail={userEmail} />
           </div>
@@ -256,7 +320,18 @@ export default function DashboardClient({ userEmail, userId }: { userEmail: stri
             }}
           >
             <div className="px-6 pt-6 pb-2 h-full">
-              <StreamGrid onSelect={setWatchingUdid} onStreamingChange={setStreamingUdids} onNameMap={setSimulatorNames} watchingUdid={watchingUdid} userId={userId} channelHealth={channelHealth} />
+              <StreamGrid
+                onSelect={setWatchingUdid}
+                onStreamingChange={setStreamingUdids}
+                onSyncStatus={({ syncState, lastSyncAt }) => {
+                  setPresenceSyncState(syncState);
+                  setPresenceLastSyncAt(lastSyncAt);
+                }}
+                onNameMap={setSimulatorNames}
+                watchingUdid={watchingUdid}
+                userId={userId}
+                channelHealth={channelHealth}
+              />
             </div>
           </div>
           <div className="flex flex-col" style={{ width: "60%" }}>

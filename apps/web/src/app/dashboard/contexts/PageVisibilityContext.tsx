@@ -1,16 +1,14 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import React, { createContext, useContext, useEffect, useState } from "react";
 import { usePageVisibility } from "../hooks/usePageVisibility";
 
 type PagePauseState = {
   isPaused: boolean;
-  resume: () => void;
 };
 
 const PageVisibilityContext = createContext<PagePauseState>({
   isPaused: false,
-  resume: () => {},
 });
 
 export function PageVisibilityProvider({ children }: { children: React.ReactNode }) {
@@ -25,10 +23,8 @@ export function PageVisibilityProvider({ children }: { children: React.ReactNode
     }
   }, [isVisible]);
 
-  const resume = useCallback(() => setIsPaused(false), []);
-
   return (
-    <PageVisibilityContext.Provider value={{ isPaused, resume }}>
+    <PageVisibilityContext.Provider value={{ isPaused }}>
       {children}
     </PageVisibilityContext.Provider>
   );

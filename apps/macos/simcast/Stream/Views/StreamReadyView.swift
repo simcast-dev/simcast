@@ -72,7 +72,12 @@ struct StreamReadyView: View {
                         await service.forceRefresh()
                         guard let simulator = service.simulators.first(where: { $0.udid == cmd.udid }),
                               let window = service.windowService.window(for: simulator.windowID) else {
-                            logger.log(.error, "start failed · simulator or window not found for \(cmd.udid.shortId())", udid: cmd.udid)
+                            let knownUdids = service.simulators.compactMap(\.udid).map { $0.shortId() }.sorted()
+                            logger.log(
+                                .error,
+                                "start failed · simulator or window not found for \(cmd.udid.shortId()) · known=\(knownUdids)",
+                                udid: cmd.udid
+                            )
                             return
                         }
                         do {
@@ -92,6 +97,7 @@ struct StreamReadyView: View {
             while !Task.isCancelled {
                 await service.refresh()
                 await syncService.updateSimulators(service.simulators)
+                await syncService.heartbeat()
                 try? await Task.sleep(for: .seconds(3))
             }
         }

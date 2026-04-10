@@ -225,7 +225,7 @@ export default function ScreenView({ udid, onStats, isActive = true }: { udid?: 
   } | null>(null);
   const connectionState = useConnectionState();
   const isConnected = connectionState === ConnectionState.Connected;
-  const { isPaused: isPagePaused, resume } = usePagePause();
+  const { isPaused: isPagePaused } = usePagePause();
   const publish = (data: Uint8Array, opts: Parameters<typeof room.localParticipant.publishData>[1]) => {
     if (!isConnected) return;
     room.localParticipant.publishData(data, opts);
@@ -574,28 +574,8 @@ export default function ScreenView({ udid, onStats, isActive = true }: { udid?: 
               <span style={{ color: "#888", fontSize: 15, fontWeight: 500 }}>
                 Stream Paused
               </span>
-              <button
-                onClick={resume}
-                aria-label="Resume stream"
-                style={{
-                  marginTop: 4,
-                  width: 44,
-                  height: 44,
-                  borderRadius: "50%",
-                  background: "rgba(255,255,255,0.1)",
-                  border: "none",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  cursor: "pointer",
-                }}
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="#fff">
-                  <polygon points="6,3 20,12 6,21" />
-                </svg>
-              </button>
               <span style={{ color: "#555", fontSize: 12 }}>
-                Click to resume
+                Return to this tab to resume automatically
               </span>
             </>
           ) : (

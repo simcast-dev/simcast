@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useCallback, useMemo, useEffect } from "react";
-import type { RealtimeChannel } from "@supabase/supabase-js";
+import type { ChannelHealth } from "@/lib/realtime";
 import { useScreenshots, type Screenshot } from "./useScreenshots";
 import ImagePreviewModal from "./ImagePreviewModal";
 
@@ -84,7 +84,7 @@ function SkeletonGrid() {
   );
 }
 
-export default function ScreenshotGallery({ userId, onNewItem, channelHealth }: { userId: string; onNewItem?: (item: Screenshot) => void; channelHealth?: { reconnectKey: number; register: (ch: RealtimeChannel) => void; unregister: (ch: RealtimeChannel) => void } }) {
+export default function ScreenshotGallery({ userId, onNewItem, channelHealth }: { userId: string; onNewItem?: (item: Screenshot) => void; channelHealth?: ChannelHealth }) {
   const { screenshots, loading, error, hasMore, loadMore, deleteScreenshot, deleteMultiple, refresh } = useScreenshots(userId, onNewItem, channelHealth);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [preview, setPreview] = useState<Screenshot | null>(null);

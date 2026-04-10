@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { RealtimeChannel } from "@supabase/supabase-js";
+import { logDebug, logDebugError } from "@/lib/debug";
+import { shouldReconnectForStatus, type ChannelHealth } from "@/lib/realtime";
 
 
 export type Screenshot = {
@@ -16,7 +17,7 @@ export type Screenshot = {
   signedUrl?: string;
 };
 
-export function useScreenshots(userId: string, onNewItem?: (item: Screenshot) => void, channelHealth?: { reconnectKey: number; register: (ch: RealtimeChannel) => void; unregister: (ch: RealtimeChannel) => void }) {
+export function useScreenshots(userId: string, onNewItem?: (item: Screenshot) => void, channelHealth?: ChannelHealth) {
   const [screenshots, setScreenshots] = useState<Screenshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -78,7 +79,34 @@ export function useScreenshots(userId: string, onNewItem?: (item: Screenshot) =>
           onNewItem?.(item);
         }
       )
-      .subscribe();
+      .subscribe((status, err) => {
+        if (err) {
+          logDebugError("gallery", "screenshots channel reported an error", err, {
+            userId,
+            status,
+            topic: channel.topic,
+          });
+          channelHealth?.requestReconnect("screenshots-channel-error", {
+            userId,
+            status,
+            topic: channel.topic,
+          });
+          return;
+        }
+
+        logDebug("gallery", "screenshots channel status changed", {
+          userId,
+          status,
+          topic: channel.topic,
+        });
+        if (shouldReconnectForStatus(status)) {
+          channelHealth?.requestReconnect("screenshots-channel-status", {
+            userId,
+            status,
+            topic: channel.topic,
+          });
+        }
+      });
 
     return () => {
       channelHealth?.unregister(channel);
