@@ -33,33 +33,38 @@ Deno.serve(async (req) => {
     });
   }
 
-  const { room_name, participant_identity, can_publish } = await req.json();
-  if (!room_name || !participant_identity) {
+  const body = await req.json().catch(() => ({}));
+  const {
+    udid,
+    room_name,
+    participant_identity,
+    can_publish,
+  } = body as {
+    udid?: string;
+    room_name?: string;
+    participant_identity?: string;
+    can_publish?: boolean;
+  };
+
+  let roomName: string | null = null;
+  if (typeof room_name === "string" && room_name.length > 0) {
+    const expectedPrefix = `user:${user.id}:sim:`;
+    if (!room_name.startsWith(expectedPrefix)) {
+      return new Response(JSON.stringify({ error: "Invalid room name" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    roomName = room_name;
+  } else if (typeof udid === "string" && udid.length > 0) {
+    roomName = `user:${user.id}:sim:${udid}`;
+  }
+
+  if (!roomName || !participant_identity) {
     return new Response(JSON.stringify({ error: "Bad Request" }), {
       status: 400,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-  }
-
-  if (can_publish) {
-    // Publisher: upsert ownership record to establish/refresh ownership
-    await supabase
-      .from("streams")
-      .upsert({ room_name, owner_id: user.id }, { onConflict: "room_name" });
-  } else {
-    // Viewer: verify the requesting user owns this room
-    const { count } = await supabase
-      .from("streams")
-      .select("*", { count: "exact", head: true })
-      .eq("room_name", room_name)
-      .eq("owner_id", user.id);
-
-    if (!count || count === 0) {
-      return new Response(JSON.stringify({ error: "Forbidden" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
   }
 
   const apiKey = Deno.env.get("LIVEKIT_API_KEY")!;
@@ -72,7 +77,7 @@ Deno.serve(async (req) => {
   });
   token.addGrant({
     roomJoin: true,
-    room: room_name,
+    room: roomName,
     canPublish: can_publish,
     canSubscribe: !can_publish,
     canPublishData: true,

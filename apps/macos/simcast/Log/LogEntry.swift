@@ -5,16 +5,18 @@ struct LogEntry: Identifiable, Sendable {
     let timestamp: Date
     let category: LogCategory
     let message: String
+    let udid: String?
 
-    init(category: LogCategory, message: String) {
+    init(category: LogCategory, message: String, udid: String? = nil) {
         self.id = UUID()
         self.timestamp = .now
         self.category = category
         self.message = message
+        self.udid = udid
     }
 }
 
-enum LogCategory: String, Sendable {
+enum LogCategory: String, CaseIterable, Sendable {
     case stream
     case liveKit = "livekit"
     case presence

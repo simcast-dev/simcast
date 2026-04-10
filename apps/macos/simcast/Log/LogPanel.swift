@@ -5,10 +5,57 @@ private let logToolbarBackground = Color(red: 0.878, green: 0.890, blue: 0.906)
 
 struct LogPanel: View {
     @Environment(AppLogger.self) private var logger
+    @Environment(SimulatorService.self) private var simulatorService
 
     @State private var isExpanded = false
     @State private var panelHeight: CGFloat = 160
     @State private var dragStartHeight: CGFloat = 160
+    @State private var selectedCategory: LogCategory?
+    @State private var selectedSimulator: String = "all"
+
+    private struct SimulatorOption: Identifiable {
+        let udid: String
+        let name: String
+
+        var id: String { udid }
+    }
+
+    private var filteredEntries: [LogEntry] {
+        logger.entries.filter { entry in
+            let matchesCategory = selectedCategory == nil || entry.category == selectedCategory
+            let matchesSimulator = selectedSimulator == "all" || entry.udid == selectedSimulator
+            return matchesCategory && matchesSimulator
+        }
+    }
+
+    private var simulatorOptions: [SimulatorOption] {
+        let knownSimulators = simulatorService.simulators.compactMap { simulator -> SimulatorOption? in
+            guard let udid = simulator.udid else { return nil }
+            return SimulatorOption(udid: udid, name: simulator.title)
+        }
+
+        let loggedUdids = Set(logger.entries.compactMap(\.udid))
+        let knownUdids = Set(knownSimulators.map(\.udid))
+
+        let recoveredFromLogs = loggedUdids
+            .subtracting(knownUdids)
+            .sorted()
+            .map { SimulatorOption(udid: $0, name: $0.shortId()) }
+
+        return (knownSimulators + recoveredFromLogs)
+            .sorted { lhs, rhs in
+                if lhs.name != rhs.name { return lhs.name < rhs.name }
+                return lhs.udid < rhs.udid
+            }
+    }
+
+    private var selectedSimulatorLabel: String {
+        guard selectedSimulator != "all" else { return "All Simulators" }
+        guard let option = simulatorOptions.first(where: { $0.udid == selectedSimulator }) else {
+            return selectedSimulator.shortId()
+        }
+        return option.name
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,6 +65,10 @@ struct LogPanel: View {
                     .frame(height: panelHeight)
             }
             collapsedBar
+        }
+        .onChange(of: simulatorOptions.map(\.udid)) { _, udids in
+            guard selectedSimulator != "all", !udids.contains(selectedSimulator) else { return }
+            selectedSimulator = "all"
         }
     }
 
@@ -54,16 +105,47 @@ struct LogPanel: View {
     }
 
     private var logToolbar: some View {
-        HStack {
-            Text("Log")
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Button("Clear") { logger.clear() }
-                .font(.caption)
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
+        VStack(spacing: 8) {
+            HStack {
+                Text("Log Console")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Menu {
+                    Button("All Simulators") { selectedSimulator = "all" }
+                    if !simulatorOptions.isEmpty {
+                        Divider()
+                        ForEach(simulatorOptions) { option in
+                            Button("\(option.name) (\(option.udid.shortId()))") {
+                                selectedSimulator = option.udid
+                            }
+                        }
+                    }
+                } label: {
+                    Label(
+                        selectedSimulatorLabel,
+                        systemImage: "iphone"
+                    )
+                    .font(.caption)
+                }
+                .menuStyle(.borderlessButton)
+
+                Button("Clear") { logger.clear() }
+                    .font(.caption)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 6) {
+                categoryChip(title: "All", category: nil)
+                ForEach(LogCategory.allCases, id: \.rawValue) { category in
+                    categoryChip(title: category.label.trimmingCharacters(in: .whitespaces), category: category)
+                }
+                Spacer()
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
@@ -74,16 +156,21 @@ struct LogPanel: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(logger.entries) { entry in
-                        LogEntryRow(entry: entry)
+                    ForEach(filteredEntries) { entry in
+                        LogEntryRow(
+                            entry: entry,
+                            simulatorName: entry.udid.flatMap { udid in
+                                simulatorOptions.first(where: { $0.udid == udid })?.name
+                            }
+                        )
                             .id(entry.id)
                     }
                 }
                 .padding(6)
             }
             .background(logBackground)
-            .onChange(of: logger.entries.count) { _, _ in
-                guard let last = logger.entries.last else { return }
+            .onChange(of: filteredEntries.count) { _, _ in
+                guard let last = filteredEntries.last else { return }
                 proxy.scrollTo(last.id, anchor: .bottom)
             }
         }
@@ -129,10 +216,30 @@ struct LogPanel: View {
         .background(logToolbarBackground)
         .overlay(alignment: .top) { Divider() }
     }
+
+    private func categoryChip(title: String, category: LogCategory?) -> some View {
+        let isSelected = selectedCategory == category
+
+        return Button {
+            selectedCategory = category
+        } label: {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(isSelected ? .white : Color(nsColor: .secondaryLabelColor))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    Capsule()
+                        .fill(isSelected ? (category?.color ?? Color.accentColor) : Color.white.opacity(0.7))
+                )
+        }
+        .buttonStyle(.plain)
+    }
 }
 
 private struct LogEntryRow: View {
     let entry: LogEntry
+    let simulatorName: String?
 
     private static let timeFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -150,9 +257,22 @@ private struct LogEntryRow: View {
                 .foregroundStyle(entry.category.color)
                 .fontWeight(.medium)
 
-            Text(entry.message)
-                .foregroundStyle(Color(nsColor: .labelColor))
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 2) {
+                if let udid = entry.udid {
+                    HStack(spacing: 6) {
+                        if let simulatorName {
+                            Text(simulatorName)
+                                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                        }
+                        Text(udid.shortId())
+                            .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
+                    }
+                }
+
+                Text(entry.message)
+                    .foregroundStyle(Color(nsColor: .labelColor))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .font(.system(size: 11, design: .monospaced))
         .padding(.vertical, 1)

@@ -12,13 +12,26 @@ export type VideoStats = {
   jitter: number;
 };
 
+function areStatsEqual(a: VideoStats | null, b: VideoStats | null) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.bitrateKbps === b.bitrateKbps &&
+    a.fps === b.fps &&
+    a.width === b.width &&
+    a.height === b.height &&
+    a.packetsLost === b.packetsLost &&
+    a.jitter === b.jitter
+  );
+}
+
 export function useVideoStats(track: TrackReferenceOrPlaceholder | undefined): VideoStats | null {
   const [stats, setStats] = useState<VideoStats | null>(null);
   const prevRef = useRef<{ bytes: number; time: number; packetsLost: number } | null>(null);
 
   useEffect(() => {
     if (!track?.publication?.track) {
-      setStats(null);
+      setStats((prev) => (prev === null ? prev : null));
       prevRef.current = null;
       return;
     }
@@ -27,8 +40,11 @@ export function useVideoStats(track: TrackReferenceOrPlaceholder | undefined): V
     const receiver = (track.publication.track as any).receiver as RTCRtpReceiver | undefined;
     if (!receiver) return;
 
+    let cancelled = false;
+
     async function poll() {
       const report = await receiver!.getStats();
+      if (cancelled) return;
       report.forEach((entry) => {
         if (entry.type === "inbound-rtp" && entry.kind === "video") {
           const now = performance.now();
@@ -42,7 +58,7 @@ export function useVideoStats(track: TrackReferenceOrPlaceholder | undefined): V
             ? Math.max(0, totalPacketsLost - prevRef.current.packetsLost)
             : 0;
           prevRef.current = { bytes, time: now, packetsLost: totalPacketsLost };
-          setStats({
+          const nextStats = {
             bitrateKbps,
             fps: (entry as RTCInboundRtpStreamStats & { framesPerSecond?: number }).framesPerSecond ?? 0,
             width: (entry as RTCInboundRtpStreamStats & { frameWidth?: number }).frameWidth ?? 0,
@@ -50,14 +66,21 @@ export function useVideoStats(track: TrackReferenceOrPlaceholder | undefined): V
             packetsLost,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             jitter: (entry as any).jitter ?? 0,
-          });
+          };
+          setStats((prev) => (areStatsEqual(prev, nextStats) ? prev : nextStats));
         }
       });
     }
 
     // 1s poll: frequent enough for real-time monitoring, infrequent enough to not impact performance
-    const id = setInterval(poll, 1000);
-    return () => clearInterval(id);
+    void poll();
+    const id = setInterval(() => {
+      void poll();
+    }, 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, [track?.publication?.track]);
 
   return stats;

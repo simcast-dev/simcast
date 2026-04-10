@@ -11,20 +11,17 @@ import ThemeSelector from "./components/ThemeSelector";
 import { StatItem } from "./ui";
 import type { VideoStats } from "./hooks/useVideoStats";
 import { useLogStream } from "./hooks/useLogStream";
-import { useSimulatorChannel } from "./hooks/useSimulatorChannel";
+import { useUserRealtimeChannel } from "./hooks/useUserRealtimeChannel";
 import LogDrawer from "./components/LogDrawer";
 import { PageVisibilityProvider } from "./contexts/PageVisibilityContext";
 import { useReconnectKey } from "./hooks/useReconnectKey";
-import type { PresenceSyncState } from "./hooks/usePresenceSubscription";
+import { STREAM_STATE_TIMEOUT_MS, type RealtimeLogPayload } from "@/lib/realtime-protocol";
 
 export default function DashboardClient({ userEmail, userId }: { userEmail: string | undefined; userId: string }) {
   const [watchingUdid, setWatchingUdid] = useState<string | null>(null);
-  const [streamingUdids, setStreamingUdids] = useState<Set<string>>(new Set());
   const [simulatorNames, setSimulatorNames] = useState<Map<string, string>>(new Map());
   const [activeView, setActiveView] = useState<"stream" | "screenshots" | "recordings">("stream");
   const [streamStats, setStreamStats] = useState<VideoStats | null>(null);
-  const [presenceSyncState, setPresenceSyncState] = useState<PresenceSyncState>("syncing");
-  const [presenceLastSyncAt, setPresenceLastSyncAt] = useState<string | null>(null);
   const handleStats = useCallback((s: VideoStats | null) => setStreamStats(s), []);
   const activeViewRef = useRef(activeView);
   activeViewRef.current = activeView;
@@ -68,22 +65,54 @@ export default function DashboardClient({ userEmail, userId }: { userEmail: stri
   }, [reconnectKey]);
 
   const { logs, errorCount, addLog, clearLogs } = useLogStream();
-  const { sendClearLogs } = useSimulatorChannel(watchingUdid, addLog, channelHealth);
+  const handleLogReceived = useCallback((payload: RealtimeLogPayload) => {
+    addLog(payload);
+  }, [addLog]);
+
+  const {
+    cards,
+    streamingUdids,
+    syncState: presenceSyncState,
+    lastSyncAt: presenceLastSyncAt,
+    sendCommand,
+  } = useUserRealtimeChannel(userId, watchingUdid, channelHealth, handleLogReceived);
+
   const handleClearLogs = useCallback(() => {
-    clearLogs();
-    sendClearLogs();
-  }, [clearLogs, sendClearLogs]);
+    if (!watchingUdid) return;
+    void sendCommand({
+      kind: "clear_logs",
+      udid: watchingUdid,
+      payload: {},
+      waitForResult: true,
+    }).then(() => {
+      clearLogs();
+    }).catch((error) => {
+      toast("Failed to clear logs", {
+        description: error instanceof Error ? error.message : "The mac app did not accept the clear request.",
+      });
+    });
+  }, [clearLogs, sendCommand, watchingUdid]);
 
-
-  useEffect(() => {
-    clearLogs();
-  }, [watchingUdid, clearLogs]);
 
   useEffect(() => {
     if (watchingUdid && !streamingUdids.has(watchingUdid)) {
       setWatchingUdid(null);
     }
   }, [streamingUdids, watchingUdid]);
+
+  useEffect(() => {
+    setSimulatorNames(new Map(cards.map((card) => [card.id, card.name])));
+  }, [cards]);
+
+  const handleStreamCommand = useCallback(async (action: "start" | "stop", udid: string) => {
+    await sendCommand({
+      kind: action,
+      udid,
+      payload: {},
+      waitForResult: true,
+      resultTimeoutMs: STREAM_STATE_TIMEOUT_MS,
+    });
+  }, [sendCommand]);
 
   const realtimeBadge = (() => {
     if (presenceSyncState === "live") {
@@ -103,6 +132,16 @@ export default function DashboardClient({ userEmail, userId }: { userEmail: stri
         color: "#f59e0b",
         background: "rgba(245, 158, 11, 0.12)",
         border: "rgba(245, 158, 11, 0.28)",
+      };
+    }
+
+    if (presenceSyncState === "offline") {
+      return {
+        label: "Realtime Offline",
+        description: "Waiting for the macOS app",
+        color: "#ef4444",
+        background: "rgba(239, 68, 68, 0.12)",
+        border: "rgba(239, 68, 68, 0.28)",
       };
     }
 
@@ -321,21 +360,27 @@ export default function DashboardClient({ userEmail, userId }: { userEmail: stri
           >
             <div className="px-6 pt-6 pb-2 h-full">
               <StreamGrid
+                cards={cards}
+                streamingUdids={streamingUdids}
+                syncState={presenceSyncState}
+                lastSyncAt={presenceLastSyncAt}
                 onSelect={setWatchingUdid}
-                onStreamingChange={setStreamingUdids}
-                onSyncStatus={({ syncState, lastSyncAt }) => {
-                  setPresenceSyncState(syncState);
-                  setPresenceLastSyncAt(lastSyncAt);
-                }}
-                onNameMap={setSimulatorNames}
                 watchingUdid={watchingUdid}
-                userId={userId}
-                channelHealth={channelHealth}
+                onStreamCommand={handleStreamCommand}
               />
             </div>
           </div>
           <div className="flex flex-col" style={{ width: "60%" }}>
-            <SimulatorViewer udid={watchingUdid} userId={userId} isStreaming={watchingUdid !== null && streamingUdids.has(watchingUdid)} isActive={activeView === "stream"} onStats={handleStats} onClose={() => setWatchingUdid(null)} simulatorName={watchingUdid ? simulatorNames.get(watchingUdid) ?? null : null} />
+            <SimulatorViewer
+              udid={watchingUdid}
+              userId={userId}
+              isStreaming={watchingUdid !== null && streamingUdids.has(watchingUdid)}
+              isActive={activeView === "stream"}
+              onStats={handleStats}
+              onClose={() => setWatchingUdid(null)}
+              simulatorName={watchingUdid ? simulatorNames.get(watchingUdid) ?? null : null}
+              sendCommand={sendCommand}
+            />
           </div>
         </div>
         <div
@@ -386,7 +431,7 @@ export default function DashboardClient({ userEmail, userId }: { userEmail: stri
               <StatItem label="JTR" value={`${(streamStats.jitter * 1000).toFixed(1)} ms`} />
             </>
           )}
-          <LogDrawer logs={logs} errorCount={errorCount} onClear={handleClearLogs} />
+          <LogDrawer logs={logs} errorCount={errorCount} onClear={handleClearLogs} watchingUdid={watchingUdid} />
         </div>
       </footer>
       </PageVisibilityProvider>

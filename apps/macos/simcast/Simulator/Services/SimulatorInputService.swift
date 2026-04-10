@@ -1,5 +1,22 @@
 import ApplicationServices
 
+enum SimulatorInputError: LocalizedError {
+    case targetUnavailable
+    case unsupportedButton(String)
+    case processFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .targetUnavailable:
+            return "Simulator target is unavailable."
+        case .unsupportedButton(let button):
+            return "Unsupported hardware button: \(button)."
+        case .processFailed(let message):
+            return message
+        }
+    }
+}
+
 @MainActor
 final class SimulatorInputService {
     private let logger: AppLogger
@@ -8,138 +25,171 @@ final class SimulatorInputService {
         self.logger = logger
     }
 
-    func injectTap(normalizedX: Double, normalizedY: Double, holdDuration: Double? = nil,
-                   pid: pid_t, windowFrame: CGRect? = nil,
-                   deviceScreenSize: DeviceProfile.ScreenSize? = nil, udid: String) {
-        guard let size = resolveTargetSize(deviceScreenSize: deviceScreenSize, pid: pid, windowFrame: windowFrame) else { return }
-        let (x, y) = absoluteCoordinates(nx: normalizedX, ny: normalizedY, in: size)
+    func injectTap(
+        normalizedX: Double,
+        normalizedY: Double,
+        holdDuration: Double? = nil,
+        pid: pid_t,
+        windowFrame: CGRect? = nil,
+        deviceScreenSize: DeviceProfile.ScreenSize? = nil,
+        udid: String
+    ) throws {
+        guard let size = resolveTargetSize(
+            deviceScreenSize: deviceScreenSize,
+            pid: pid,
+            windowFrame: windowFrame
+        ) else {
+            throw SimulatorInputError.targetUnavailable
+        }
 
-        // axe over simctl: axe supports richer gestures (long-press with duration,
-        // multi-touch, edge swipes) that simctl doesn't offer.
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/axe")
+        let (x, y) = absoluteCoordinates(nx: normalizedX, ny: normalizedY, in: size)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/axe")
         if let duration = holdDuration {
-            proc.arguments = ["touch", "-x", "\(x)", "-y", "\(y)", "--down", "--up", "--delay", "\(duration)", "--udid", udid]
+            process.arguments = [
+                "touch", "-x", "\(x)", "-y", "\(y)",
+                "--down", "--up", "--delay", "\(duration)", "--udid", udid
+            ]
         } else {
-            proc.arguments = ["tap", "-x", "\(x)", "-y", "\(y)", "--udid", udid]
+            process.arguments = ["tap", "-x", "\(x)", "-y", "\(y)", "--udid", udid]
         }
-        do {
-            try proc.run()
-        } catch {
-            logger.log(.error, "Tap injection failed: \(error.localizedDescription)", udid: udid)
-        }
+
+        try runProcess(process, failurePrefix: "Tap injection failed", udid: udid)
     }
 
-    func injectSwipe(startNX: Double, startNY: Double, endNX: Double, endNY: Double,
-                     pid: pid_t, windowFrame: CGRect? = nil,
-                     deviceScreenSize: DeviceProfile.ScreenSize? = nil, udid: String) {
-        guard let size = resolveTargetSize(deviceScreenSize: deviceScreenSize, pid: pid, windowFrame: windowFrame) else { return }
+    func injectSwipe(
+        startNX: Double,
+        startNY: Double,
+        endNX: Double,
+        endNY: Double,
+        pid: pid_t,
+        windowFrame: CGRect? = nil,
+        deviceScreenSize: DeviceProfile.ScreenSize? = nil,
+        udid: String
+    ) throws {
+        guard let size = resolveTargetSize(
+            deviceScreenSize: deviceScreenSize,
+            pid: pid,
+            windowFrame: windowFrame
+        ) else {
+            throw SimulatorInputError.targetUnavailable
+        }
+
         let (sx, sy) = absoluteCoordinates(nx: startNX, ny: startNY, in: size)
         let (ex, ey) = absoluteCoordinates(nx: endNX, ny: endNY, in: size)
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/axe")
-        proc.arguments = ["swipe", "--start-x", "\(sx)", "--start-y", "\(sy)",
-                          "--end-x", "\(ex)", "--end-y", "\(ey)", "--udid", udid]
-        do {
-            try proc.run()
-        } catch {
-            logger.log(.error, "Swipe injection failed: \(error.localizedDescription)", udid: udid)
-        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/axe")
+        process.arguments = [
+            "swipe",
+            "--start-x", "\(sx)",
+            "--start-y", "\(sy)",
+            "--end-x", "\(ex)",
+            "--end-y", "\(ey)",
+            "--udid", udid
+        ]
+
+        try runProcess(process, failurePrefix: "Swipe injection failed", udid: udid)
     }
 
-    func captureScreenshot(udid: String) async -> Data? {
+    func captureScreenshot(udid: String) async throws -> Data {
         let path = NSTemporaryDirectory() + "simcast_shot_\(udid).png"
         defer { try? FileManager.default.removeItem(atPath: path) }
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/axe")
-        proc.arguments = ["screenshot", "--udid", udid, "--output", path]
-        do {
-            try proc.run()
-        } catch {
-            logger.log(.error, "Screenshot capture failed: \(error.localizedDescription)", udid: udid)
-            return nil
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/axe")
+        process.arguments = ["screenshot", "--udid", udid, "--output", path]
+        try runProcess(process, failurePrefix: "Screenshot capture failed", udid: udid)
+
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else {
+            throw SimulatorInputError.processFailed(
+                "Screenshot capture failed: the generated file could not be read."
+            )
         }
-        proc.waitUntilExit()
-        return try? Data(contentsOf: URL(fileURLWithPath: path))
+
+        return data
     }
 
-    func injectLabelTap(label: String, udid: String) {
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/axe")
-        proc.arguments = ["tap", "--label", label, "--udid", udid]
-        do {
-            try proc.run()
-        } catch {
-            logger.log(.error, "Label tap injection failed: \(error.localizedDescription)", udid: udid)
-        }
+    func injectLabelTap(label: String, udid: String) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/axe")
+        process.arguments = ["tap", "--label", label, "--udid", udid]
+        try runProcess(process, failurePrefix: "Label tap injection failed", udid: udid)
     }
 
-    func typeText(_ text: String, udid: String) {
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/axe")
-        proc.arguments = ["type", text, "--udid", udid]
-        do {
-            try proc.run()
-        } catch {
-            logger.log(.error, "Text injection failed: \(error.localizedDescription)", udid: udid)
-        }
+    func typeText(_ text: String, udid: String) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/axe")
+        process.arguments = ["type", text, "--udid", udid]
+        try runProcess(process, failurePrefix: "Text injection failed", udid: udid)
     }
 
-    func performGesture(_ gesture: String, pid: pid_t, windowFrame: CGRect? = nil,
-                        deviceScreenSize: DeviceProfile.ScreenSize? = nil, udid: String) {
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/axe")
-        var args = ["gesture", gesture]
-        if let size = resolveTargetSize(deviceScreenSize: deviceScreenSize, pid: pid, windowFrame: windowFrame) {
-            args += ["--screen-width", "\(Int(size.width))", "--screen-height", "\(Int(size.height))"]
+    func performGesture(
+        _ gesture: String,
+        pid: pid_t,
+        windowFrame: CGRect? = nil,
+        deviceScreenSize: DeviceProfile.ScreenSize? = nil,
+        udid: String
+    ) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/axe")
+        var arguments = ["gesture", gesture]
+        if let size = resolveTargetSize(
+            deviceScreenSize: deviceScreenSize,
+            pid: pid,
+            windowFrame: windowFrame
+        ) {
+            arguments += ["--screen-width", "\(Int(size.width))", "--screen-height", "\(Int(size.height))"]
         }
-        args += ["--udid", udid]
-        proc.arguments = args
-        do {
-            try proc.run()
-        } catch {
-            logger.log(.error, "Gesture injection failed: \(error.localizedDescription)", udid: udid)
-        }
+        arguments += ["--udid", udid]
+        process.arguments = arguments
+
+        try runProcess(process, failurePrefix: "Gesture injection failed", udid: udid)
     }
 
-    func pressHardwareButton(_ button: String, udid: String) {
-        // Map web button IDs to axe button type names.
+    func pressHardwareButton(_ button: String, udid: String) throws {
         let axeButton: String? = switch button {
-        case "home":      "home"
-        case "lock":      "lock"
-        case "side":      "side-button"
-        case "siri":      "siri"
+        case "home": "home"
+        case "lock": "lock"
+        case "side": "side-button"
+        case "siri": "siri"
         case "apple_pay": "apple-pay"
-        default:           nil
+        default: nil
         }
-        guard let axeButton else { return }
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/axe")
-        proc.arguments = ["button", axeButton, "--udid", udid]
-        do {
-            try proc.run()
-        } catch {
-            logger.log(.error, "Hardware button press failed: \(error.localizedDescription)", udid: udid)
+
+        guard let axeButton else {
+            throw SimulatorInputError.unsupportedButton(button)
         }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/axe")
+        process.arguments = ["button", axeButton, "--udid", udid]
+        try runProcess(process, failurePrefix: "Hardware button press failed", udid: udid)
     }
 
-    func listApps(udid: String) -> [(bundleId: String, name: String)] {
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        proc.arguments = ["simctl", "listapps", udid]
-        let pipe = Pipe()
-        proc.standardOutput = pipe
-        do {
-            try proc.run()
-        } catch {
-            logger.log(.error, "List apps failed: \(error.localizedDescription)", udid: udid)
-            return []
+    func listApps(udid: String) throws -> [(bundleId: String, name: String)] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = ["simctl", "listapps", udid]
+        let output = try runProcess(
+            process,
+            failurePrefix: "List apps failed",
+            udid: udid,
+            captureStdout: true
+        )
+
+        guard
+            let output,
+            let plist = try? PropertyListSerialization.propertyList(
+                from: output,
+                options: [],
+                format: nil
+            ) as? [String: Any]
+        else {
+            throw SimulatorInputError.processFailed(
+                "List apps failed: the response could not be decoded."
+            )
         }
-        proc.waitUntilExit()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] else {
-            return []
-        }
+
         return plist.compactMap { bundleId, value -> (bundleId: String, name: String)? in
             guard !bundleId.hasPrefix("com.apple") else { return nil }
             let info = value as? [String: Any]
@@ -151,19 +201,24 @@ final class SimulatorInputService {
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    func openURL(_ url: String, udid: String) {
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        proc.arguments = ["simctl", "openurl", udid, url]
-        do {
-            try proc.run()
-        } catch {
-            logger.log(.error, "Open URL failed: \(error.localizedDescription)", udid: udid)
-        }
-        proc.waitUntilExit()
+    func openURL(_ url: String, udid: String) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = ["simctl", "openurl", udid, url]
+        try runProcess(process, failurePrefix: "Open URL failed", udid: udid)
     }
 
-    func sendPushNotification(bundleId: String, title: String?, subtitle: String?, body: String?, badge: Int?, sound: String?, category: String?, silent: Bool, udid: String) {
+    func sendPushNotification(
+        bundleId: String,
+        title: String?,
+        subtitle: String?,
+        body: String?,
+        badge: Int?,
+        sound: String?,
+        category: String?,
+        silent: Bool,
+        udid: String
+    ) throws {
         var aps: [String: Any] = [:]
         if !silent, let body {
             var alert: [String: String] = ["body": body]
@@ -175,26 +230,34 @@ final class SimulatorInputService {
         if let badge { aps["badge"] = badge }
         if let sound { aps["sound"] = sound }
         if let category { aps["category"] = category }
+
         let payload: [String: Any] = ["aps": aps]
-        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
-        let path = NSTemporaryDirectory() + "simcast_push_\(UUID().uuidString).json"
-        guard (try? data.write(to: URL(fileURLWithPath: path))) != nil else { return }
-        defer { try? FileManager.default.removeItem(atPath: path) }
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        proc.arguments = ["simctl", "push", udid, bundleId, path]
-        do {
-            try proc.run()
-        } catch {
-            logger.log(.error, "Push notification send failed: \(error.localizedDescription)", udid: udid)
-            return
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else {
+            throw SimulatorInputError.processFailed(
+                "Push notification send failed: payload encoding failed."
+            )
         }
-        proc.waitUntilExit()
+
+        let path = NSTemporaryDirectory() + "simcast_push_\(UUID().uuidString).json"
+        guard (try? data.write(to: URL(fileURLWithPath: path))) != nil else {
+            throw SimulatorInputError.processFailed(
+                "Push notification send failed: temporary payload could not be written."
+            )
+        }
+
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = ["simctl", "push", udid, bundleId, path]
+        try runProcess(process, failurePrefix: "Push notification send failed", udid: udid)
     }
 
-    /// Returns the target coordinate space for axe HID events.
-    /// Prefers device screen size (true device points) over AX frame (screen points that vary with zoom).
-    private func resolveTargetSize(deviceScreenSize: DeviceProfile.ScreenSize?, pid: pid_t, windowFrame: CGRect?) -> CGSize? {
+    private func resolveTargetSize(
+        deviceScreenSize: DeviceProfile.ScreenSize?,
+        pid: pid_t,
+        windowFrame: CGRect?
+    ) -> CGSize? {
         if let deviceScreenSize {
             return CGSize(width: deviceScreenSize.width, height: deviceScreenSize.height)
         }
@@ -206,5 +269,45 @@ final class SimulatorInputService {
 
     private func absoluteCoordinates(nx: Double, ny: Double, in size: CGSize) -> (x: Int, y: Int) {
         (Int(nx * size.width), Int(ny * size.height))
+    }
+
+    @discardableResult
+    private func runProcess(
+        _ process: Process,
+        failurePrefix: String,
+        udid: String,
+        captureStdout: Bool = false
+    ) throws -> Data? {
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        do {
+            try process.run()
+        } catch {
+            let message = "\(failurePrefix): \(error.localizedDescription)"
+            logger.log(.error, message, udid: udid)
+            throw SimulatorInputError.processFailed(message)
+        }
+
+        process.waitUntilExit()
+        let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
+
+        guard process.terminationStatus == 0 else {
+            let stderrText = String(data: stderrData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let stdoutText = String(data: stdoutData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let detail = [stderrText, stdoutText]
+                .compactMap { $0 }
+                .first(where: { !$0.isEmpty }) ?? "exit code \(process.terminationStatus)"
+            let message = "\(failurePrefix): \(detail)"
+            logger.log(.error, message, udid: udid)
+            throw SimulatorInputError.processFailed(message)
+        }
+
+        return captureStdout ? stdoutData : nil
     }
 }

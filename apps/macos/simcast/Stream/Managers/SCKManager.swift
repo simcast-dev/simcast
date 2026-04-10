@@ -26,7 +26,6 @@ final class SCKManager {
 
     private let supabase: SupabaseClient
     private let logger: AppLogger
-    var inputService: SimulatorInputService?
     var simulatorService: SimulatorService?
 
     init(supabase: SupabaseClient, logger: AppLogger) {
@@ -85,7 +84,6 @@ final class SCKManager {
         session.captureSize = size
 
         provider.prepare(size: size)
-        wireInputHandlers(provider: provider, udid: udid)
 
         let proxy = SCKProxy(receivers: [preview, provider], onStop: { [weak self] in
             Task { @MainActor in
@@ -132,7 +130,7 @@ final class SCKManager {
                     self.onSessionStopped?(udid)
                 }
             }
-            try await provider.connect(roomName: udid)
+            try await provider.connect(udid: udid)
             sessions[udid] = session
         } catch {
             await session.stopCapture()
@@ -153,13 +151,16 @@ final class SCKManager {
         for udid in Array(sessions.keys) { await stop(udid: udid) }
     }
 
-    func startRecording(udid: String) {
-        guard let session = sessions[udid] else { return }
+    func startRecording(udid: String) throws {
+        guard let session = sessions[udid] else {
+            throw StreamError.invalidWindow("Stream session not found.")
+        }
         do {
             try session.startRecording(captureSize: session.captureSize)
             logger.log(.stream, "recording started · \(udid.shortId())", udid: udid)
         } catch {
             logger.log(.error, "recording start failed · \(error.localizedDescription)", udid: udid)
+            throw error
         }
     }
 
@@ -170,90 +171,5 @@ final class SCKManager {
             logger.log(.stream, "recording stopped · \(String(format: "%.1f", result.duration))s", udid: udid)
         }
         return result
-    }
-
-    private func wireInputHandlers(provider: LiveKitProvider, udid: String) {
-        guard let inputService else { return }
-
-        provider.onTapReceived = { [weak self] x, y, holdDuration in
-            guard let self else { return }
-            inputService.injectTap(normalizedX: x, normalizedY: y, holdDuration: holdDuration,
-                                   pid: self.findPid(udid: udid),
-                                   windowFrame: self.findWindowFrame(udid: udid),
-                                   deviceScreenSize: self.findDeviceScreenSize(udid: udid),
-                                   udid: udid)
-        }
-        provider.onLabelTapReceived = { label in
-            inputService.injectLabelTap(label: label, udid: udid)
-        }
-        provider.onSwipeReceived = { [weak self] startNX, startNY, endNX, endNY in
-            guard let self else { return }
-            inputService.injectSwipe(startNX: startNX, startNY: startNY, endNX: endNX, endNY: endNY,
-                                     pid: self.findPid(udid: udid),
-                                     windowFrame: self.findWindowFrame(udid: udid),
-                                     deviceScreenSize: self.findDeviceScreenSize(udid: udid),
-                                     udid: udid)
-        }
-        provider.onButtonReceived = { button in
-            inputService.pressHardwareButton(button, udid: udid)
-        }
-        provider.onGestureReceived = { [weak self] gesture in
-            guard let self else { return }
-            inputService.performGesture(gesture, pid: self.findPid(udid: udid),
-                                        windowFrame: self.findWindowFrame(udid: udid),
-                                        deviceScreenSize: self.findDeviceScreenSize(udid: udid),
-                                        udid: udid)
-        }
-        provider.onTextReceived = { text in
-            inputService.typeText(text, udid: udid)
-        }
-        provider.onPushReceived = { bundleId, title, subtitle, body, badge, sound, category, silent in
-            inputService.sendPushNotification(bundleId: bundleId, title: title, subtitle: subtitle, body: body,
-                                              badge: badge, sound: sound, category: category, silent: silent, udid: udid)
-        }
-        provider.onOpenURLReceived = { url in
-            inputService.openURL(url, udid: udid)
-        }
-        provider.onScreenshotRequested = { [weak self] in
-            guard let self,
-                  let session = self.sessions[udid],
-                  let sim = self.simulatorService?.simulators.first(where: { $0.udid == udid }),
-                  let data = await inputService.captureScreenshot(udid: udid) else { return }
-            await session.liveKitProvider.uploadAndPublishScreenshot(data, simulatorName: sim.title, simulatorUdid: udid)
-        }
-        provider.onAppListRequested = { [weak self] in
-            guard let self, let session = self.sessions[udid] else { return }
-            let apps = inputService.listApps(udid: udid)
-            await session.liveKitProvider.publishAppList(apps)
-        }
-        provider.onStartRecordingRequested = { [weak self] in
-            self?.startRecording(udid: udid)
-        }
-        provider.onStopRecordingRequested = { [weak self] in
-            guard let self,
-                  let session = self.sessions[udid],
-                  let sim = self.simulatorService?.simulators.first(where: { $0.udid == udid }),
-                  let result = await self.stopRecording(udid: udid) else { return }
-            await session.liveKitProvider.uploadAndPublishRecording(result.url, simulatorName: sim.title, simulatorUdid: udid, duration: result.duration)
-        }
-    }
-
-    private func findPid(udid: String) -> pid_t {
-        guard let sim = simulatorService?.simulators.first(where: { $0.udid == udid }),
-              let window = simulatorService?.windowService.window(for: sim.windowID),
-              let pid = window.owningApplication?.processID else { return 0 }
-        return pid_t(pid)
-    }
-
-    private func findDeviceScreenSize(udid: String) -> DeviceProfile.ScreenSize? {
-        guard let sim = simulatorService?.simulators.first(where: { $0.udid == udid }),
-              let deviceType = sim.deviceTypeIdentifier else { return nil }
-        return DeviceProfile.screenSize(for: deviceType)
-    }
-
-    private func findWindowFrame(udid: String) -> CGRect? {
-        guard let sim = simulatorService?.simulators.first(where: { $0.udid == udid }),
-              let window = simulatorService?.windowService.window(for: sim.windowID) else { return nil }
-        return window.frame
     }
 }

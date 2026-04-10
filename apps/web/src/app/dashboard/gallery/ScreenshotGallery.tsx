@@ -125,13 +125,13 @@ export default function ScreenshotGallery({ userId, onNewItem, channelHealth }: 
   const handleDeleteSelected = useCallback(async () => {
     const items = screenshots
       .filter(s => selected.has(s.id))
-      .map(s => ({ id: s.id, storagePath: s.storage_path }));
+      .map(s => ({ id: s.id, storagePath: s.storage_path, status: s.status }));
     await deleteMultiple(items);
     setSelected(new Set());
   }, [screenshots, selected, deleteMultiple]);
 
   const handleDeleteSingle = useCallback(async (s: Screenshot) => {
-    await deleteScreenshot(s.id, s.storage_path);
+    await deleteScreenshot(s.id, s.storage_path, s.status);
     setPreview(null);
   }, [deleteScreenshot]);
 
@@ -346,7 +346,7 @@ export default function ScreenshotGallery({ userId, onNewItem, channelHealth }: 
                       onClick={() => {
                         if (isSelecting) {
                           toggleSelect(s.id);
-                        } else {
+                        } else if (s.status === "ready" && s.signedUrl) {
                           setPreview(s);
                         }
                       }}
@@ -377,7 +377,7 @@ export default function ScreenshotGallery({ userId, onNewItem, channelHealth }: 
                       </div>
 
                       {/* Thumbnail */}
-                      {s.signedUrl ? (
+                      {s.status === "ready" && s.signedUrl ? (
                         <img
                           src={s.signedUrl}
                           alt={s.simulator_name ?? "Screenshot"}
@@ -385,12 +385,26 @@ export default function ScreenshotGallery({ userId, onNewItem, channelHealth }: 
                           style={{ width: "100%", aspectRatio: "9/16", objectFit: "cover", display: "block" }}
                         />
                       ) : (
-                        <div style={{ width: "100%", aspectRatio: "9/16", background: "var(--skeleton-bg)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-8 h-8" style={{ color: "var(--text-3)" }}>
-                            <rect x="3" y="3" width="18" height="18" rx="3" />
-                            <circle cx="8.5" cy="8.5" r="1.5" />
-                            <path d="M21 15l-5-5L5 21" />
-                          </svg>
+                        <div style={{ width: "100%", aspectRatio: "9/16", background: "var(--skeleton-bg)", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 8 }}>
+                          {s.status === "failed" ? (
+                            <>
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-8 h-8" style={{ color: "var(--error-text)" }}>
+                                <circle cx="12" cy="12" r="9" />
+                                <path d="M12 7v6" />
+                                <circle cx="12" cy="16.5" r="0.8" fill="currentColor" stroke="none" />
+                              </svg>
+                              <span className="text-[10px] font-semibold" style={{ color: "var(--error-text)" }}>
+                                Upload failed
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <div className="animate-pulse" style={{ width: 48, height: 48, borderRadius: 16, background: "var(--skeleton-pulse)" }} />
+                              <span className="text-[10px] font-semibold" style={{ color: "var(--text-3)" }}>
+                                Uploading…
+                              </span>
+                            </>
+                          )}
                         </div>
                       )}
 
@@ -400,6 +414,11 @@ export default function ScreenshotGallery({ userId, onNewItem, channelHealth }: 
                           {formatDate(s.created_at)}
                           {s.width && s.height ? ` \u00B7 ${s.width}\u00D7${s.height}` : ""}
                         </p>
+                        {s.status === "failed" && s.error_message && (
+                          <p className="text-[10px] mt-1" style={{ color: "var(--error-text)" }}>
+                            {s.error_message}
+                          </p>
+                        )}
                       </div>
                     </div>
                   );
@@ -430,7 +449,7 @@ export default function ScreenshotGallery({ userId, onNewItem, channelHealth }: 
       )}
 
       {/* Preview modal */}
-      {preview && preview.signedUrl && (
+      {preview && preview.status === "ready" && preview.signedUrl && (
         <ImagePreviewModal
           url={preview.signedUrl}
           filename={`${preview.simulator_name ?? "screenshot"}-${preview.created_at}.png`}

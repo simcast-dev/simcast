@@ -8,7 +8,7 @@ protocol StreamingProvider: VideoFrameReceiver {
     var isConnected: Bool { get }
     var onDisconnected: (() -> Void)? { get set }
     func prepare(size: CGSize)
-    func connect(roomName: String) async throws
+    func connect(udid: String) async throws
     func disconnect() async
 }
 

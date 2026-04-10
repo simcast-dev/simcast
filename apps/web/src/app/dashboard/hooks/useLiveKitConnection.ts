@@ -3,12 +3,17 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-export function useLiveKitConnection(udid: string | null, userId: string, retryKey: number = 0) {
+export function useLiveKitConnection(
+  udid: string | null,
+  userId: string,
+  enabled: boolean,
+  retryKey: number = 0,
+) {
   const [connection, setConnection] = useState<{ token: string; url: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!udid) {
+    if (!udid || !enabled) {
       setConnection(null);
       setError(null);
       return;
@@ -23,7 +28,8 @@ export function useLiveKitConnection(udid: string | null, userId: string, retryK
     supabase.functions
       .invoke("livekit-token", {
         body: {
-          room_name: udid,
+          udid,
+          room_name: `user:${userId}:sim:${udid}`,
           participant_identity: `web-viewer-${userId}-${crypto.randomUUID().slice(0, 8)}`,
           // Web viewers only consume video; macOS is the sole publisher
           can_publish: false,
@@ -45,7 +51,7 @@ export function useLiveKitConnection(udid: string | null, userId: string, retryK
       });
 
     return () => { cancelled = true; };
-  }, [udid, retryKey]);
+  }, [udid, enabled, retryKey, userId]);
 
   return { connection, error };
 }

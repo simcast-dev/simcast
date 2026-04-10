@@ -2,32 +2,38 @@
 
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { createClient } from "@/lib/supabase/client";
-import { logDebug, logDebugError } from "@/lib/debug";
-import type { ChannelHealth } from "@/lib/realtime";
+import { logDebug } from "@/lib/debug";
+import { STREAM_STATE_TIMEOUT_MS } from "@/lib/realtime-protocol";
 import { DeviceIconBox, SimulatorDeviceInfo, SectionHeaderWithBadge, LoadingSpinner } from "./ui";
-import { usePresenceSubscription, formatDuration, type PresenceSyncState } from "./hooks/usePresenceSubscription";
+import { formatDuration, type PresenceSyncState, type SimulatorCard } from "./hooks/useUserRealtimeChannel";
+
+function areSetsEqual(a: Set<string>, b: Set<string>) {
+  if (a.size !== b.size) return false;
+  for (const value of a) {
+    if (!b.has(value)) return false;
+  }
+  return true;
+}
+
+type StreamGridProps = {
+  cards: SimulatorCard[];
+  streamingUdids: Set<string>;
+  syncState: PresenceSyncState;
+  lastSyncAt: string | null;
+  watchingUdid?: string | null;
+  onSelect: (udid: string | null) => void;
+  onStreamCommand: (action: "start" | "stop", udid: string) => Promise<void>;
+};
 
 export default function StreamGrid({
-  onSelect,
-  onStreamingChange,
-  onSessionSummary,
-  onSyncStatus,
-  onNameMap,
+  cards,
+  streamingUdids,
+  syncState,
+  lastSyncAt,
   watchingUdid = null,
-  userId,
-  channelHealth,
-}: {
-  onSelect: (udid: string | null) => void;
-  onStreamingChange?: (udids: Set<string>) => void;
-  onSessionSummary?: (s: { count: number; streamingName: string | null }) => void;
-  onSyncStatus?: (status: { syncState: PresenceSyncState; lastSyncAt: string | null }) => void;
-  onNameMap?: (names: Map<string, string>) => void;
-  watchingUdid?: string | null;
-  userId: string;
-  channelHealth?: ChannelHealth;
-}) {
-  const { cards, streamingUdids, syncState, lastSyncAt } = usePresenceSubscription(userId, onStreamingChange, channelHealth);
+  onSelect,
+  onStreamCommand,
+}: StreamGridProps) {
   const [pendingUdids, setPendingUdids] = useState<Set<string>>(new Set());
   const onSelectRef = useRef(onSelect);
   const autoWatchRef = useRef<string | null>(null);
@@ -36,10 +42,13 @@ export default function StreamGrid({
     ? "Connecting to realtime sync…"
     : syncState === "stale"
       ? `Realtime sync is reconnecting${lastSyncAt ? ` · last update ${formatDuration(lastSyncAt)} ago` : ""}`
-      : null;
+      : syncState === "offline"
+        ? "The macOS app is offline"
+        : null;
 
   const clearPending = (udid: string) => {
-    setPendingUdids(prev => {
+    setPendingUdids((prev) => {
+      if (!prev.has(udid)) return prev;
       const next = new Set(prev);
       next.delete(udid);
       return next;
@@ -51,114 +60,85 @@ export default function StreamGrid({
   }, [onSelect]);
 
   useEffect(() => {
-    setPendingUdids(new Set());
+    if (pendingUdids.size === 0) return;
+    let shouldSelect: string | null = null;
+    const nextPending = new Set<string>();
 
-    if (autoWatchRef.current && streamingUdids.has(autoWatchRef.current)) {
-      onSelectRef.current(autoWatchRef.current);
-      autoWatchRef.current = null;
+    pendingUdids.forEach((udid) => {
+      const isStreaming = streamingUdids.has(udid);
+      if (autoWatchRef.current === udid) {
+        if (isStreaming) {
+          shouldSelect = udid;
+          autoWatchRef.current = null;
+        } else {
+          nextPending.add(udid);
+        }
+        return;
+      }
+
+      if (isStreaming) {
+        nextPending.add(udid);
+      }
+    });
+
+    if (!areSetsEqual(pendingUdids, nextPending)) {
+      setPendingUdids(nextPending);
     }
-  }, [streamingUdids]);
+    if (shouldSelect) {
+      onSelectRef.current(shouldSelect);
+    }
+  }, [pendingUdids, streamingUdids]);
 
   useEffect(() => {
-    if (pendingUdids.size === 0) return;
-    const timer = setTimeout(() => {
+    if (pendingUdids.size === 0 || syncState !== "live") return;
+    const timer = window.setTimeout(() => {
       logDebug("command", "pending command timeout expired", {
         pendingUdids: Array.from(pendingUdids),
+        syncState,
       });
-      toast("No response from the mac app", {
-        description: "The command was sent, but simulator state did not update within 12 seconds.",
+      toast("Mac app did not confirm the state change yet", {
+        description: "The command was acknowledged, but the source-of-truth stream state did not change within 12 seconds.",
       });
       setPendingUdids(new Set());
       autoWatchRef.current = null;
-    }, 12000);
-    return () => clearTimeout(timer);
-  }, [pendingUdids]);
+    }, STREAM_STATE_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [pendingUdids, syncState]);
 
   useEffect(() => {
-    if (cards.length === 0) onSelectRef.current(null);
-    const streamingCard = cards.find(c => streamingUdids.has(c.id));
-    onSessionSummary?.({ count: cards.length, streamingName: streamingCard?.name ?? null });
-    onSyncStatus?.({ syncState, lastSyncAt });
-    onNameMap?.(new Map(cards.map(c => [c.id, c.name])));
-  }, [cards, streamingUdids, syncState, lastSyncAt, onSessionSummary, onSyncStatus, onNameMap]);
-
-  const sendCommand = async (action: "start" | "stop", udid: string) => {
-    const supabase = createClient();
-    logDebug("command", "sending stream command", { action, udid });
-
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError) {
-      logDebugError("command", "failed to resolve current user before sending command", userError, {
-        action,
-        udid,
-      });
-      return false;
+    if (cards.length === 0) {
+      onSelectRef.current(null);
     }
-
-    if (!user) {
-      logDebug("command", "skipping command because there is no authenticated user", {
-        action,
-        udid,
-      });
-      return false;
-    }
-
-    const { error } = await supabase.from("stream_commands").insert({ user_id: user.id, action, udid });
-
-    if (error) {
-      logDebugError("command", "stream command insert failed", error, {
-        action,
-        udid,
-        userId: user.id,
-      });
-      return false;
-    }
-
-    logDebug("command", "stream command inserted", {
-      action,
-      udid,
-      userId: user.id,
-    });
-    return true;
-  };
+  }, [cards]);
 
   const handleStart = (udid: string) => {
+    if (pendingUdids.has(udid) || commandsDisabled) return;
+
     autoWatchRef.current = udid;
-    setPendingUdids(prev => new Set(prev).add(udid));
+    setPendingUdids((prev) => new Set(prev).add(udid));
 
-    void (async () => {
-      const inserted = await sendCommand("start", udid);
-      if (inserted) return;
-
+    void onStreamCommand("start", udid).catch((error) => {
       clearPending(udid);
       if (autoWatchRef.current === udid) {
         autoWatchRef.current = null;
       }
-      toast("Failed to send start command", {
-        description: "Check the browser console for the Supabase error details.",
+      toast("Failed to start the stream", {
+        description: error instanceof Error ? error.message : "The mac app did not accept the command.",
       });
-    })();
+    });
   };
 
-  const handleStop = (udid: string, isWatching: boolean) => {
-    setPendingUdids(prev => new Set(prev).add(udid));
+  const handleStop = (udid: string) => {
+    if (pendingUdids.has(udid) || commandsDisabled) return;
 
-    void (async () => {
-      const inserted = await sendCommand("stop", udid);
-      if (inserted) {
-        if (isWatching) onSelect(null);
-        return;
-      }
+    setPendingUdids((prev) => new Set(prev).add(udid));
 
+    void onStreamCommand("stop", udid).catch((error) => {
       clearPending(udid);
-      toast("Failed to send stop command", {
-        description: "Check the browser console for the Supabase error details.",
+      toast("Failed to stop the stream", {
+        description: error instanceof Error ? error.message : "The mac app did not accept the command.",
       });
-    })();
+    });
   };
 
   if (cards.length === 0) {
@@ -181,12 +161,14 @@ export default function StreamGrid({
           </svg>
         </div>
         <p className="font-semibold mb-2" style={{ color: "var(--text)" }}>
-          {syncState === "live" ? "No active sessions" : "Realtime sync unavailable"}
+          {syncState === "live" ? "No active sessions" : syncState === "offline" ? "macOS app offline" : "Realtime sync unavailable"}
         </p>
         <p className="text-sm text-center max-w-xs leading-relaxed" style={{ color: "var(--text-2)" }}>
           {syncState === "live"
-            ? "Open the SimCast macOS app and hit Play on a simulator to start broadcasting."
-            : "The dashboard is reconnecting to realtime services. Simulator state may be temporarily out of date."}
+            ? "Open the SimCast macOS app and boot a simulator to make it available here."
+            : syncState === "offline"
+              ? "Open SimCast on macOS and keep it signed in to control your local simulators."
+              : "The dashboard is reconnecting to realtime services. Simulator state may be temporarily out of date."}
         </p>
       </div>
     );
@@ -199,10 +181,6 @@ export default function StreamGrid({
   return (
     <>
       <style>{`
-        @keyframes ringPulse {
-          0%, 100% { opacity: 0.4; transform: scale(1); }
-          50% { opacity: 1; transform: scale(1.06); }
-        }
         @keyframes btnSpin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
@@ -218,7 +196,7 @@ export default function StreamGrid({
               <span
                 style={{
                   fontSize: "var(--font-size-xs)",
-                  color: syncState === "stale" ? "var(--error-text)" : "var(--text-3)",
+                  color: syncState === "live" ? "var(--text-3)" : syncState === "offline" ? "var(--error-text)" : "#f59e0b",
                 }}
               >
                 {statusMessage}
@@ -232,9 +210,9 @@ export default function StreamGrid({
       <div className="flex flex-col gap-4">
         {cards.map((card) => {
           const isStreaming = streamingUdids.has(card.id);
-          const beingStopped = isStreaming && pendingUdids.has(card.id);
+          const isPending = pendingUdids.has(card.id);
           const isWatching = watchingUdid === card.id;
-          const isClickable = isStreaming && !beingStopped;
+          const isClickable = isStreaming && !isPending;
 
           return (
             <div
@@ -254,13 +232,13 @@ export default function StreamGrid({
               onClick={() => {
                 if (isClickable) onSelect(isWatching ? null : card.id);
               }}
-              onMouseEnter={e => {
+              onMouseEnter={(e) => {
                 if (!isWatching) {
                   e.currentTarget.style.border = "1px solid var(--tab-hover-border)";
                   e.currentTarget.style.backgroundColor = "var(--tab-hover-bg)";
                 }
               }}
-              onMouseLeave={e => {
+              onMouseLeave={(e) => {
                 if (!isWatching) {
                   e.currentTarget.style.border = "1px solid transparent";
                   e.currentTarget.style.backgroundColor = "var(--surface)";
@@ -287,7 +265,7 @@ export default function StreamGrid({
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {isStreaming && !beingStopped && !isWatching && (
+                  {isStreaming && !isPending && !isWatching && (
                     <span className="flex items-center gap-1.5 text-[10px] transition-opacity duration-200" style={{ color: "var(--text-3)" }}>
                       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3 h-3">
                         <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" />
@@ -297,12 +275,12 @@ export default function StreamGrid({
                     </span>
                   )}
 
-                  {isStreaming && !beingStopped && (
+                  {isStreaming && !isPending && (
                     <button
                       title="Stop streaming"
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleStop(card.id, watchingUdid === card.id);
+                        handleStop(card.id);
                       }}
                       disabled={commandsDisabled}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 hover:scale-[1.04]"
@@ -321,7 +299,7 @@ export default function StreamGrid({
                     </button>
                   )}
 
-                  {beingStopped && (
+                  {isPending && isStreaming && (
                     <button
                       disabled
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold opacity-60 cursor-not-allowed"
@@ -342,7 +320,7 @@ export default function StreamGrid({
                         e.stopPropagation();
                         handleStart(card.id);
                       }}
-                      disabled={pendingUdids.has(card.id) || commandsDisabled}
+                      disabled={isPending || commandsDisabled}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 hover:scale-[1.04] disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
                       style={{
                         background: "var(--btn-primary-from)",
@@ -350,14 +328,14 @@ export default function StreamGrid({
                         color: "var(--btn-primary-text)",
                       }}
                     >
-                      {pendingUdids.has(card.id) ? (
+                      {isPending ? (
                         <LoadingSpinner />
                       ) : (
                         <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
                           <path d="M3 3.732a1.5 1.5 0 012.305-1.265l6.706 4.267a1.5 1.5 0 010 2.531L5.305 13.533A1.5 1.5 0 013 12.267V3.732z" />
                         </svg>
                       )}
-                      {pendingUdids.has(card.id) ? "Starting…" : "Start"}
+                      {isPending ? "Starting…" : "Start"}
                     </button>
                   )}
                 </div>

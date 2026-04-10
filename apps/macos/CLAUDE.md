@@ -1,105 +1,142 @@
 # SimCast macOS App
 
-Captures iOS Simulator windows, encodes to H.264, streams via LiveKit. Handles remote stream commands and interactive input injection from web clients.
+The macOS app is the authoritative runtime for simulator discovery, stream publishing, command execution, and media upload.
 
 ## Tech Stack
 
-- **Swift** with macOS 15.6+ deployment target
-- **100% SwiftUI** for UI
-- **ScreenCaptureKit** — window-specific capture of iOS Simulator
-- **VideoToolbox** — hardware H.264 encoding (via LiveKit)
-- **LiveKit Swift SDK** — publishes video track; 8 Mbps, 60 fps, H.264, no simulcast, no adaptive stream; receives data channel messages for input injection
-- **Supabase Swift SDK** — auth, Realtime presence + postgres changes + broadcast (log streaming)
-- **`axe` CLI** (`/opt/homebrew/bin/axe`) — gesture, button, and text injection into Simulator
+- **Swift + SwiftUI**
+- **ScreenCaptureKit** for simulator window capture
+- **LiveKit Swift SDK** for publishing video
+- **Supabase Swift SDK** for auth, Realtime, and media persistence
+- **`axe` CLI** plus `simctl` for interactive simulator control
 
-## Xcode Project
+## High-Level Architecture
 
-- Product Name: **simcast**
-- Organization Identifier: **com.florinmatinca**
-- Bundle Identifier: **com.florinmatinca.simcast**
-- Deployment Target: **macOS 15.6**
-- **No App Sandbox**
-- **Hardened Runtime** enabled (required for notarization)
-- Entitlements: `com.apple.security.screen-capture`, `com.apple.security.accessibility`, outgoing + incoming network connections
-- Supabase credentials entered by user at runtime via onboarding screen, stored in macOS Keychain (`KeychainService`)
-
-## Architecture
-
-```
+```text
 SimcastApp
-├── AuthManager          @Observable — Supabase auth state (unconfigured/unauthenticated/authenticated), optional supabase client, Keychain-backed config
-│   └── KeychainService  — reads/writes Supabase URL + Anon Key in macOS Keychain
-├── SyncService          @Observable — Realtime channels, presence tracking, stream commands, per-simulator log broadcast
-│   ├── channel "user:{userId}"
-│   │   ├── presence track() — sessionId, userEmail, startedAt, simulators list, streamingUdids[]
-│   │   └── postgres changes — stream_commands INSERT (action: start|stop) → onStreamCommand callback
-│   └── simulatorChannels "simulator:{udid}" (one per booted simulator, managed by updateSimulators)
-│       ├── broadcast "log" — sends log entries scoped to this simulator
-│       └── broadcast "clear_logs" — receives clear command from web for this simulator
-├── SimulatorService     @Observable — polls simctl every 3s, discovers booted simulators
-│   └── WindowService    — maps simulator windowIDs to SCWindows via SCShareableContent
-├── SCKManager           @Observable — manages per-simulator StreamSessions
-│   ├── sessions: [String: StreamSession]  — keyed by UDID, each session owns:
-│   │   ├── SCStream + SCKProxy  — ScreenCaptureKit capture for this window
-│   │   ├── LiveKitProvider      — per-session LiveKit room connection + input handlers
-│   │   ├── PreviewReceiver      — per-session local preview layer
-│   │   └── FileRecordingReceiver — per-session recording (optional)
-│   ├── wireInputHandlers()  — wires LiveKit data channel → SimulatorInputService per session
-│   └── forceRefresh via SimulatorService for reliable window lookup
-├── SimulatorInputService — tap injection via CGEvent + AXUIElement; gesture/button/text via axe CLI
-└── AppLogger            @Observable — in-memory log store, broadcasts to web via SyncService per-simulator channels
-    └── LogWriter        background actor — append-only, capped at 500
-    └── log(_ category:, _ message:, udid: String? = nil) — when udid provided, broadcasts on simulator:{udid} channel
+├── AuthManager                 # Keychain-backed Supabase config + auth bootstrap
+├── SyncService                 # shared user:{userId} realtime channel
+├── SimulatorService            # booted simulator discovery + window mapping
+├── SCKManager                  # per-UDID StreamSession lifecycle
+├── StreamCommandExecutor       # validates/executes incoming commands
+├── SimulatorInputService       # axe / simctl command runner with real failure propagation
+└── AppLogger                   # local operator log + web broadcast bridge
 ```
 
-### Key Types
+## App Shell
 
-- **`StreamSession`** — per-simulator capture pipeline: bundles SCStream + LiveKitProvider + PreviewReceiver + recording state. Created by `SCKManager.start()`, destroyed by `stop(udid:)`.
-- **`VideoFrameReceiver`** protocol — `sckManager(didOutput:)` + `sckManagerDidStop()`. Implemented by `PreviewReceiver` and `LiveKitProvider`.
-- **`StreamingProvider: VideoFrameReceiver`** protocol — adds `isConnected`, `prepare(size:)`, `connect(roomName:)`, `disconnect()`. Implemented by `LiveKitProvider`.
+- `SimcastApp` uses an explicit startup phase:
+  - `launching`
+  - `unconfigured`
+  - `unauthenticated`
+  - `authenticated`
+- `AppLaunchView` is used during:
+  - auth bootstrap
+  - authenticated service preparation
+  - permission bootstrap before the main screen appears
+- This avoids flashing login/setup/permission screens before the app knows the correct destination.
 
-## Data Flow
+## Realtime Contract
 
-1. Web dashboard inserts `stream_commands` row (`action: start|stop`, `udid`, `user_id`)
-2. `SyncService` receives it via postgres changes on `user:{userId}` Realtime channel
-3. `StreamReadyView.onStreamCommand` dispatches to `SCKManager`
-4. `SCKManager.start(window:udid:)` creates a `StreamSession` with per-session `LiveKitProvider` + `PreviewReceiver`, starts ScreenCaptureKit capture, wires input handlers, connects to LiveKit room (room name = UDID). Retries with fresh window on failure.
-5. `LiveKitProvider.connect` fetches token from `livekit-token` edge function, connects Room, publishes video track
-6. `SyncService.syncPresence(streamingUdids:)` broadcasts `streamingUdids` array so web knows which streams are live
-7. Each session's input handlers route data channel messages to `SimulatorInputService` using the captured UDID
+The app joins one Supabase Realtime channel per user: `user:{userId}`.
 
-## Interactive Input Flow
+### Presence
+macOS tracks authoritative presence with:
+- `session_type: "mac"`
+- `session_id`
+- `user_email`
+- `started_at`
+- `simulators[]`
+- `streaming_udids[]`
+- `presence_version`
 
-Each session's `LiveKitProvider` receives data channel messages on its own room via `RoomDelegate.room(_:participant:didReceiveData:forTopic:)`. Input handlers are wired in `SCKManager.wireInputHandlers()` with the UDID captured at session creation:
+### Broadcast handling
+`SyncService` listens for:
+- `command`
 
-| Topic | Payload | Handler |
-|-------|---------|---------|
-| `simulator_tap` | `{x, y, vw?, vh?, longPress?: number, axeLabel?: string}` | `SimulatorInputService.injectTap` — CGEvent mouseDown/mouseUp at screen coords (after AXUIElement focus); long-press via `axe touch --down --up --delay`; label tap via `axe tap --label` |
-| `simulator_button` | `{button: "home"\|"lock"\|"side"\|"siri"\|"apple_pay"}` | `SimulatorInputService.pressHardwareButton` — `axe button <type> --udid` |
-| `simulator_gesture` | `{gesture: string}` | `SimulatorInputService.performGesture` — `axe gesture <gesture> --udid` (supports scroll and edge swipes) |
-| `simulator_text` | `{text: string}` | `SimulatorInputService.typeText` — `axe type <text> --udid` |
-| `simulator_screenshot` | `{}` | `SimulatorInputService.captureScreenshot` — captures to temp file, uploads to Supabase Storage, broadcasts signed URL via `simulator_screenshot_result` Realtime broadcast |
+And emits:
+- `command_ack`
+- `command_result`
+- `log`
 
-## Build Verification
+Listeners are attached before subscription completes so macOS does not miss initial web presence or early commands during reconnect/bootstrap.
 
-After any code change, build and check for errors:
+## Command Execution
+
+`StreamCommandExecutor` is the single place where incoming realtime commands are decoded and executed.
+
+Supported kinds:
+- `start`, `stop`
+- `tap`, `swipe`
+- `button`, `gesture`, `text`
+- `push`, `app_list`, `open_url`
+- `screenshot`
+- `start_recording`, `stop_recording`
+- `clear_logs`
+
+Rules:
+- every recognized command gets an ack
+- every executed command emits an explicit success or failure result
+- stream `start` / `stop` also update mac presence so the web can confirm source-of-truth stream state
+
+## Native Input Layer
+
+`SimulatorInputService`:
+- throws structured errors instead of silently logging and returning
+- waits for subprocess completion
+- checks termination status
+- surfaces stderr/stdout details in failure messages when available
+
+This matters because the dashboard depends on explicit `command_result` success/failure, not just “the process launched.”
+
+## Media Lifecycle
+
+`LiveKitProvider` handles:
+- LiveKit publisher connection
+- screenshot media row creation + upload orchestration
+- recording media row creation + upload orchestration
+
+Preferred flow for screenshots and recordings:
+1. insert DB row as `pending`
+2. return command success quickly
+3. upload to Storage in the background
+4. update row to `ready` or `failed`
+
+Compatibility note:
+- if the remote Supabase project still uses the older media schema without `status` / `error_message`, the mac app falls back to a legacy insert path so uploads still succeed
+- the placeholder lifecycle still requires the latest migrations
+
+## Operator UI
+
+- `StreamReadyHeader` shows quick operator pills for:
+  - detected simulators
+  - live streams
+  - active recordings
+- `SimulatorRow` includes clearer stream/recording status and better row-level state visibility
+- `LogPanel` acts like an operator console:
+  - category filter chips
+  - simulator filter menu
+  - clearer last-entry/error summary
+  - simulator names in the filter, not just UDIDs
+
+## Logging
+
+`AppLogger` feeds both the local console and the web dashboard log stream.
+
+`SyncService` now logs the realtime command lifecycle clearly:
+- command received
+- ack sent / ack rejected
+- result sent / result failed
+
+These entries are tagged by simulator UDID when available so they can be filtered per simulator in the mac log panel and in the web dashboard.
+
+## Verification
 
 ```bash
 xcodebuild -project apps/macos/simcast.xcodeproj \
   -scheme simcast \
   -configuration Debug \
-  build \
-  2>&1 | grep -E "error:|BUILD SUCCEEDED|BUILD FAILED"
+  build
 ```
 
-Run from repo root. Fix all `error:` lines before considering the task done. Warnings are acceptable.
-
-If XcodeBuildMCP macOS workflows are enabled (requires `.xcodebuildmcp/config.yaml`), prefer those tools over the Bash command.
-
-## Documentation Rules
-
-- SwiftUI patterns → SwiftUI Agent Skill
-- Concurrency → Swift Concurrency Agent Skill
-- ScreenCaptureKit APIs → Apple Docs MCP
-- VideoToolbox property keys → Apple Docs MCP
-- LiveKit Swift SDK signatures → Context7
+If XcodeBuildMCP is available, prefer it for simulator-oriented verification.

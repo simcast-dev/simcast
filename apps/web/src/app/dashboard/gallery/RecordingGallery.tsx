@@ -182,13 +182,13 @@ export default function RecordingGallery({ userId, onNewItem, channelHealth }: {
   const handleDeleteSelected = useCallback(async () => {
     const items = recordings
       .filter(r => selected.has(r.id))
-      .map(r => ({ id: r.id, storagePath: r.storage_path }));
+      .map(r => ({ id: r.id, storagePath: r.storage_path, status: r.status }));
     await deleteMultiple(items);
     setSelected(new Set());
   }, [recordings, selected, deleteMultiple]);
 
   const handleDeleteSingle = useCallback(async (r: Recording) => {
-    await deleteRecording(r.id, r.storage_path);
+    await deleteRecording(r.id, r.storage_path, r.status);
     setPreview(null);
   }, [deleteRecording]);
 
@@ -402,7 +402,7 @@ export default function RecordingGallery({ userId, onNewItem, channelHealth }: {
                       onClick={() => {
                         if (isSelecting) {
                           toggleSelect(r.id);
-                        } else {
+                        } else if (r.status === "ready" && r.signedUrl) {
                           setPreview(r);
                         }
                       }}
@@ -443,43 +443,73 @@ export default function RecordingGallery({ userId, onNewItem, channelHealth }: {
                         position: "relative",
                         overflow: "hidden",
                       }}>
-                        {r.signedUrl && <VideoThumbnail src={r.signedUrl} />}
-                        <div style={{
-                          position: "absolute",
-                          width: 48, height: 48, borderRadius: "50%",
-                          background: "var(--badge-bg)",
-                          border: "1px solid var(--badge-border)",
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                          opacity: 0.85,
-                        }}>
-                          <svg viewBox="0 0 24 24" width="24" height="24" fill="var(--violet)" stroke="none">
-                            <polygon points="9,6 18,12 9,18" />
-                          </svg>
-                        </div>
-                        {/* Duration badge */}
-                        <div style={{
-                          position: "absolute", bottom: 8, right: 8,
-                          background: "var(--overlay-bg)",
-                          backdropFilter: "blur(4px)",
-                          borderRadius: 6,
-                          padding: "2px 8px",
-                          fontSize: "var(--font-size-xs)",
-                          fontWeight: "var(--font-weight-semibold)",
-                          color: "var(--text)",
-                          letterSpacing: "var(--tracking-tight)",
-                        }}>
-                          {formatDuration(r.duration_seconds)}
-                        </div>
+                        {r.status === "ready" && r.signedUrl ? (
+                          <>
+                            <VideoThumbnail src={r.signedUrl} />
+                            <div style={{
+                              position: "absolute",
+                              width: 48, height: 48, borderRadius: "50%",
+                              background: "var(--badge-bg)",
+                              border: "1px solid var(--badge-border)",
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              opacity: 0.85,
+                            }}>
+                              <svg viewBox="0 0 24 24" width="24" height="24" fill="var(--violet)" stroke="none">
+                                <polygon points="9,6 18,12 9,18" />
+                              </svg>
+                            </div>
+                            <div style={{
+                              position: "absolute", bottom: 8, right: 8,
+                              background: "var(--overlay-bg)",
+                              backdropFilter: "blur(4px)",
+                              borderRadius: 6,
+                              padding: "2px 8px",
+                              fontSize: "var(--font-size-xs)",
+                              fontWeight: "var(--font-weight-semibold)",
+                              color: "var(--text)",
+                              letterSpacing: "var(--tracking-tight)",
+                            }}>
+                              {formatDuration(r.duration_seconds)}
+                            </div>
+                          </>
+                        ) : r.status === "failed" ? (
+                          <div className="flex flex-col items-center gap-2">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-8 h-8" style={{ color: "var(--error-text)" }}>
+                              <circle cx="12" cy="12" r="9" />
+                              <path d="M12 7v6" />
+                              <circle cx="12" cy="16.5" r="0.8" fill="currentColor" stroke="none" />
+                            </svg>
+                            <span className="text-[10px] font-semibold" style={{ color: "var(--error-text)" }}>
+                              Upload failed
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center gap-2">
+                            <div className="animate-pulse" style={{ width: 48, height: 48, borderRadius: "50%", background: "var(--skeleton-pulse)" }} />
+                            <span className="text-[10px] font-semibold" style={{ color: "var(--text-3)" }}>
+                              Uploading…
+                            </span>
+                          </div>
+                        )}
                       </div>
 
                       {/* Info */}
                       <div style={{ padding: "10px 12px" }}>
                         <p className="text-[10px]" style={{ color: "var(--text-3)" }}>
                           {formatDate(r.created_at)}
-                          {" \u00B7 "}
-                          {formatFileSize(r.file_size_bytes)}
-                          {r.width && r.height ? ` \u00B7 ${r.width}\u00D7${r.height}` : ""}
+                          {r.status === "ready" && (
+                            <>
+                              {" \u00B7 "}
+                              {formatFileSize(r.file_size_bytes)}
+                              {r.width && r.height ? ` \u00B7 ${r.width}\u00D7${r.height}` : ""}
+                            </>
+                          )}
                         </p>
+                        {r.status === "failed" && r.error_message && (
+                          <p className="text-[10px] mt-1" style={{ color: "var(--error-text)" }}>
+                            {r.error_message}
+                          </p>
+                        )}
                       </div>
                     </div>
                   );
@@ -510,7 +540,7 @@ export default function RecordingGallery({ userId, onNewItem, channelHealth }: {
       )}
 
       {/* Preview modal */}
-      {preview && preview.signedUrl && (
+      {preview && preview.status === "ready" && preview.signedUrl && (
         <VideoPreviewModal
           url={preview.signedUrl}
           filename={`${preview.simulator_name ?? "recording"}-${preview.created_at}.mp4`}

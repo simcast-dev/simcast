@@ -33,6 +33,10 @@ struct SimcastApp: App {
                 .environment(simulatorService)
                 .environment(appLogger)
                 .background(WindowCenterer())
+                .animation(.easeInOut(duration: 0.2), value: auth.status)
+                .task {
+                    await auth.bootstrap()
+                }
                 .task(id: auth.supabase != nil) {
                     guard let supabase = auth.supabase else { return }
                     for await (event, session) in supabase.auth.authStateChanges {
@@ -65,6 +69,8 @@ struct SimcastApp: App {
                         case .unauthenticated:
                             appLogger.syncService = nil
                             await syncService?.stop()
+                        case .launching:
+                            break
                         case .unconfigured:
                             appLogger.syncService = nil
                             await syncService?.stop()
@@ -96,6 +102,12 @@ struct SimcastApp: App {
     @ViewBuilder
     private var contentView: some View {
         switch auth.status {
+        case .launching:
+            AppLaunchView(
+                title: "Opening SimCast",
+                message: auth.launchMessage
+            )
+            .frame(width: 540, height: 460)
         case .unconfigured:
             if showWelcome {
                 WelcomeView(onContinue: { showWelcome = false })
@@ -113,6 +125,12 @@ struct SimcastApp: App {
                     .environment(syncService)
                     .environment(sckManager)
                     .frame(width: 540, height: 460)
+            } else {
+                AppLaunchView(
+                    title: "Preparing Workspace",
+                    message: "Connecting the realtime bridge and local simulator services."
+                )
+                .frame(width: 540, height: 460)
             }
         }
     }

@@ -49,48 +49,21 @@ struct StreamReadyView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(white: 0.93))
         .task {
-            let inputService = SimulatorInputService(logger: logger)
-            sckManager.inputService = inputService
+            let commandExecutor = StreamCommandExecutor(
+                simulatorService: service,
+                sckManager: sckManager,
+                syncService: syncService,
+                logger: logger
+            )
             sckManager.simulatorService = service
 
             sckManager.onSessionStopped = { _ in
                 Task { await syncService.syncPresence(streamingUdids: sckManager.streamingUdids) }
             }
 
-            syncService.onClearLogsReceived = {
-                logger.clear()
-            }
-
-            syncService.onStreamCommand = { cmd in
+            syncService.onCommand = { command in
                 Task { @MainActor in
-                    switch cmd.action {
-                    case .start:
-                        if sckManager.sessions[cmd.udid] != nil {
-                            await syncService.syncPresence(streamingUdids: sckManager.streamingUdids)
-                            return
-                        }
-                        await service.forceRefresh()
-                        guard let simulator = service.simulators.first(where: { $0.udid == cmd.udid }),
-                              let window = service.windowService.window(for: simulator.windowID) else {
-                            let knownUdids = service.simulators.compactMap(\.udid).map { $0.shortId() }.sorted()
-                            logger.log(
-                                .error,
-                                "start failed · simulator or window not found for \(cmd.udid.shortId()) · known=\(knownUdids)",
-                                udid: cmd.udid
-                            )
-                            return
-                        }
-                        do {
-                            try await sckManager.start(window: window, udid: cmd.udid)
-                            await syncService.syncPresence(streamingUdids: sckManager.streamingUdids)
-                        } catch {
-                            logger.log(.error, "start failed · \(error.localizedDescription)", udid: cmd.udid)
-                            await syncService.syncPresence(streamingUdids: sckManager.streamingUdids)
-                        }
-                    case .stop:
-                        await sckManager.stop(udid: cmd.udid)
-                        await syncService.syncPresence(streamingUdids: sckManager.streamingUdids)
-                    }
+                    await commandExecutor.handle(command)
                 }
             }
 

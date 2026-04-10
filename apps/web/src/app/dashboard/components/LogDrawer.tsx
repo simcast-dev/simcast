@@ -17,7 +17,17 @@ function formatTime(iso: string): string {
     + "." + d.getMilliseconds().toString().padStart(3, "0");
 }
 
-export default function LogDrawer({ logs, errorCount, onClear }: { logs: LogEntry[]; errorCount: number; onClear: () => void }) {
+export default function LogDrawer({
+  logs,
+  errorCount,
+  onClear,
+  watchingUdid = null,
+}: {
+  logs: LogEntry[];
+  errorCount: number;
+  onClear: () => void;
+  watchingUdid?: string | null;
+}) {
   const [open, setOpen] = useState(false);
   const [height, setHeight] = useState(240);
   const [filters, setFilters] = useState<Set<LogCategory>>(new Set(["stream", "livekit", "presence", "command", "error"]));
@@ -25,7 +35,11 @@ export default function LogDrawer({ logs, errorCount, onClear }: { logs: LogEntr
   const shouldAutoScroll = useRef(true);
   const dragRef = useRef<{ startY: number; startH: number } | null>(null);
 
-  const filteredLogs = logs.filter(l => filters.has(l.category));
+  const filteredLogs = logs.filter((log) => {
+    const matchesCategory = filters.has(log.category);
+    const matchesSimulator = !watchingUdid || log.udid === watchingUdid;
+    return matchesCategory && matchesSimulator;
+  });
 
   const toggleFilter = useCallback((cat: LogCategory) => {
     setFilters(prev => {
@@ -243,7 +257,11 @@ export default function LogDrawer({ logs, errorCount, onClear }: { logs: LogEntr
           >
             {filteredLogs.length === 0 ? (
               <div style={{ padding: "20px 12px", color: "var(--text-3)", textAlign: "center", fontSize: "var(--font-size-xs)" }}>
-                {logs.length === 0 ? "No logs yet" : "No logs match the selected filters"}
+                {logs.length === 0
+                  ? "No logs yet"
+                  : watchingUdid
+                    ? "No logs match the selected filters for this simulator"
+                    : "No logs match the selected filters"}
               </div>
             ) : (
               filteredLogs.map(log => {

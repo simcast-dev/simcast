@@ -1,156 +1,135 @@
 # SimCast Web App
 
-Next.js 16 browser client for viewing and controlling SimCast streams.
+Next.js 16 dashboard for viewing and controlling SimCast simulator streams in realtime.
 
 ## Tech Stack
 
-- **Next.js 16** — App Router, TypeScript strict mode
-- **Tailwind CSS v4** — `@import "tailwindcss"` in globals.css
-- **Supabase** — `@supabase/ssr` for auth (cookie-based sessions), Realtime presence + postgres changes, edge function invocation
-- **LiveKit** — `@livekit/components-react` + `livekit-client` for WebRTC stream playback and data channel input injection
-- **Package manager** — npm
+- **Next.js 16** with App Router and TypeScript strict mode
+- **Tailwind CSS v4**
+- **Supabase** for auth, Realtime, Storage signed URLs, and edge function invocation
+- **LiveKit** for stream playback only
+- **npm** as the package manager
 
-## Project Structure
+## Structure
 
-```
+```text
 src/
 ├── app/
-│   ├── globals.css          # @import "tailwindcss" + CSS custom properties (--bg, --text, --log-*, etc.)
-│   ├── layout.tsx           # Root layout, Geist font
-│   ├── page.tsx             # Root — auth-protected, renders DashboardClient
-│   ├── theme-provider.tsx   # Theme context provider
-│   ├── theme-script.tsx     # Inline script to prevent FOUC
-│   ├── login/
-│   │   ├── page.tsx         # Server wrapper
-│   │   └── LoginForm.tsx    # Client component
-│   └── dashboard/
-│       ├── DashboardClient.tsx  # Client root — layout, split-pane, log drawer, background blooms
-│       ├── StreamGrid.tsx       # Realtime presence cards + send stream_commands
-│       ├── SimulatorViewer.tsx  # LiveKit room viewer wrapper
-│       ├── ui.tsx               # Shared UI components (ControlPanelButton, StatItem, DeviceIconBox, etc.)
-│       ├── SignOutButton.tsx
-│       ├── contexts/
-│       │   └── PageVisibilityContext.tsx  # Tracks browser tab visibility
-│       ├── components/
-│       │   ├── ScreenView.tsx       # Interactive controls (tap, scroll, type, push, link, record, screenshot)
-│       │   ├── LogDrawer.tsx        # Footer log drawer with category filters
-│       │   ├── AppDropdown.tsx      # App selection dropdown
-│       │   ├── PushNotificationModal.tsx
-│       │   └── ThemeSelector.tsx
-│       ├── hooks/
-│       │   ├── usePresenceSubscription.ts  # Realtime presence on user:{userId} channel
-│       │   ├── useSimulatorChannel.ts     # Per-simulator channel (simulator:{udid}) for logs + clear_logs
-│       │   ├── useLiveKitConnection.ts     # LiveKit token + room connection
-│       │   ├── useLogStream.ts             # Log entry state, capped array, error count
-│       │   ├── useVideoStats.ts            # Stream quality metrics
-│       │   └── usePageVisibility.ts        # Hook for PageVisibilityContext
-│       └── gallery/
-│           ├── ScreenshotGallery.tsx
-│           ├── RecordingGallery.tsx
-│           ├── ImagePreviewModal.tsx # Full-size screenshot preview
-│           ├── VideoPreviewModal.tsx # Recording playback preview
-│           ├── useScreenshots.ts    # Fetch + Realtime INSERT subscription
-│           └── useRecordings.ts     # Fetch + Realtime INSERT subscription
+│   ├── dashboard/
+│   │   ├── DashboardClient.tsx
+│   │   ├── StreamGrid.tsx
+│   │   ├── SimulatorViewer.tsx
+│   │   ├── ui.tsx
+│   │   ├── components/
+│   │   │   ├── ScreenView.tsx
+│   │   │   ├── LogDrawer.tsx
+│   │   │   ├── PushNotificationModal.tsx
+│   │   │   └── ThemeSelector.tsx
+│   │   ├── contexts/
+│   │   │   └── PageVisibilityContext.tsx
+│   │   ├── gallery/
+│   │   │   ├── ScreenshotGallery.tsx
+│   │   │   ├── RecordingGallery.tsx
+│   │   │   ├── useScreenshots.ts
+│   │   │   └── useRecordings.ts
+│   │   └── hooks/
+│   │       ├── useReconnectKey.ts
+│   │       ├── useUserRealtimeChannel.ts
+│   │       ├── useLiveKitConnection.ts
+│   │       ├── useLogStream.ts
+│   │       └── useVideoStats.ts
+│   └── login/
 ├── lib/
+│   ├── realtime-protocol.ts
+│   ├── realtime.ts
+│   ├── debug.ts
 │   └── supabase/
-│       ├── client.ts        # createBrowserClient
-│       └── server.ts        # createServerClient + cookies()
-└── proxy.ts                 # Supabase session refresh + route protection + CSP/security headers (used as middleware)
+└── proxy.ts
 ```
 
-## Supabase
+## Realtime Model
 
-- Project URL: `https://ocdfaysptysziokdgbye.supabase.co`
-- Credentials in `.env.local` (not committed)
-- Server client: `createClient()` from `@/lib/supabase/server`
-- Browser client: `createClient()` from `@/lib/supabase/client`
+- The dashboard joins one shared Realtime channel: `user:{userId}`.
+- It tracks lightweight **web presence** for command validation and session identity.
+- It listens to authoritative **mac presence** for:
+  - simulator inventory
+  - `streaming_udids[]`
+  - `presence_version` freshness
+- It sends every simulator action as a Broadcast `command`.
+- It expects:
+  - `command_ack` within 5 seconds
+  - `command_result` for explicit success/failure
+  - mac presence confirmation for stream `start` / `stop`
 
-### Edge Functions
+## Important Hooks
 
-| Function | Purpose |
-|----------|---------|
-| `livekit-token` | Issues LiveKit JWT for authenticated users (publisher or subscriber) |
+### `useUserRealtimeChannel`
+Owns the shared `user:{userId}` channel:
+- tracks web presence
+- derives simulator cards from mac presence
+- manages pending commands and ack/result timeouts
+- exposes `syncState: syncing | live | stale | offline`
+- routes realtime logs to the dashboard log store
+- treats ack/result/log traffic as liveness signals for the mac app
 
-## Command Flow (Web → macOS)
+### `useReconnectKey`
+Central reconnect coordinator:
+- registers active realtime channels
+- requests reconnects when channels error/close/time out
+- forces channel recreation after focus / visibility restoration when needed
 
-1. `StreamGrid` calls `sendCommand(action, udid)` → inserts into `stream_commands` table
-2. macOS `SyncService` receives the INSERT via Supabase Realtime postgres changes
-3. macOS executes the command and updates presence (`streaming_udids[]`)
-4. `StreamGrid` reads updated presence and shows streaming badges per simulator
+### `useLiveKitConnection`
+- fetches viewer tokens via the `livekit-token` edge function using the simulator UDID
+- only connects when a selected simulator is actually streaming
+- clears viewer state immediately when the stream stops to avoid LiveKit teardown races
 
-## Realtime
+### `useLogStream`
+- keeps a capped in-memory log history
+- stores simulator UDID with each log entry
+- lets the UI filter by the currently watched simulator without destroying history
 
-### Presence
-`usePresenceSubscription` subscribes to `channel("user:{userId}")` and reads presence state. Each macOS session tracks: `session_id`, `user_email`, `started_at`, `simulators[]`, `streaming_udids[]`. Deduplicates by UDID (keeps most recent session).
+## Command Semantics
 
-### Per-Simulator Channels
-`useSimulatorChannel` subscribes to `channel("simulator:{udid}")` for the currently watched simulator. Logs are scoped per-simulator; switching simulators clears the log display and subscribes to the new channel.
+All commands go through Supabase Broadcast on `user:{userId}`.
 
-### Broadcast (on `simulator:{udid}` channel)
-- **`log`** (macOS → web): Real-time log entries from `AppLogger`, scoped to a specific simulator. Displayed in `LogDrawer` footer drawer with category filters. Capped at 500 entries.
-- **`clear_logs`** (web → macOS): Clears log panel on both sides for the watched simulator.
+| Kind | Trigger | Completion |
+|------|---------|------------|
+| `start`, `stop` | `StreamGrid` | `command_ack` + `command_result` + mac presence update |
+| `tap`, `swipe`, `button`, `gesture`, `text`, `push`, `open_url`, `clear_logs` | `ScreenView` / dashboard controls | explicit `command_result` |
+| `app_list` | Push modal bootstrap | `command_result` with app payload |
+| `screenshot`, `start_recording`, `stop_recording` | Media controls | explicit `command_result`; gallery continues through DB media state |
 
-### Postgres Changes
-- **`screenshots` INSERT**: Gallery auto-updates when macOS uploads a screenshot.
-- **`recordings` INSERT**: Gallery auto-updates when macOS uploads a recording.
+## Media Gallery
 
-## Theme
+- `screenshots` and `recordings` are subscribed via Postgres realtime `INSERT` + `UPDATE`
+- gallery items can be:
+  - `pending`: placeholder card
+  - `ready`: signed URL requested and rendered
+  - `failed`: failed placeholder with error state
+- the gallery also normalizes legacy rows that do not have `status` / `error_message` yet, treating them as ready
 
-Aurora Dark/Light with theme toggle. CSS custom properties in `globals.css`:
-- `--bg: #161330` (violet-black), `--text: #EDE9FF` (light purple-white)
-- Violet `#7C3AED` (primary), emerald `#10B981` (active/highlight)
-- Glassmorphism with `backdrop-filter: blur()`, radial gradient blooms in background
+## UI Notes
 
-## Dashboard Layout
+- The dashboard has a realtime badge in the header and stale/offline states in the simulator grid.
+- `StreamGrid` guards against overlapping per-simulator start/stop actions and only mutates pending state when it actually changes.
+- `ScreenView` resets simulator-scoped local state on UDID changes to avoid stale recording/app-list UI.
+- `ScreenView` also guards high-frequency pointer and stats updates to avoid React update-depth issues.
+- The log drawer preserves history across simulator switches and filters the visible log list by the currently watched simulator.
+- The page pause model is simple:
+  - hidden tab → pause video subscription/rendering
+  - visible tab → auto-resume
 
-Always-visible split-pane: `StreamGrid` on the left (40%), `SimulatorViewer` on the right (60%). Right panel shows a placeholder when no simulator is selected; shows the stream when watching. Footer bar shows stream stats and a "Logs" button that opens a resizable log drawer.
+## Auth + Routing
 
-## SimulatorViewer Interactive Controls
+- `proxy.ts` protects all non-login routes.
+- Browser auth uses `@supabase/ssr`.
+- Sign-out clears the session and redirects back to `/login`.
 
-`SimulatorViewer` sends LiveKit data channel messages to the macOS app. Three control tabs:
-
-| Data topic | Payload | Control |
-|------------|---------|---------|
-| `simulator_tap` | `{x, y, vw, vh, longPress?: number}` normalized to video frame | TAP tab — click on video; optional long-press toggle |
-| `simulator_gesture` | `{gesture: string}` | SCROLL tab — scroll (up/down/left/right), edge swipes (from-left-edge, from-right-edge, from-top-edge, from-bottom-edge) |
-| `simulator_text` | `{text: string}` | TYPE tab — text input field |
-| `simulator_button` | `{button: string}` | Hardware buttons — `home`, `lock`, `side` |
-| `simulator_screenshot` | `{}` | Screenshot button — macOS captures, uploads to Supabase Storage, broadcasts signed URL back via `simulator_screenshot_result`; auto-downloaded |
-
-TAP tab also supports "Tap by label" — sends `simulator_tap` with an `axeLabel` field for accessibility label targeting.
-
-Real-time stats bar (always visible): RES, FPS, BW (bitrate), PKT (packets lost — red if > 0).
-
-## Route Protection
-
-`proxy.ts` (Next.js middleware) redirects:
-- Unauthenticated → any route (except `/login`) redirects to `/login`
-- Authenticated → `/login` redirects to `/`
-
-## Security Headers
-
-Set in `proxy.ts`:
-- `Content-Security-Policy` — allows Supabase WSS and LiveKit cloud origins
-- `Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options`
-
-## Dev
+## Verification
 
 ```bash
 cd apps/web
-npm install
-npm run dev      # http://localhost:3000
-npm run build    # verify no TS errors
-npm run lint
+npx tsc --noEmit
 ```
 
-## Environment Variables
-
-```
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
-NEXT_PUBLIC_LIVEKIT_URL=   # optional — LiveKit server URL for future guest viewer
-```
-
-## Deployment
-
-- **Vercel** — zero-config, set env vars in project settings
+Use `npm run build` as an additional check when the environment can fetch fonts and external assets normally.

@@ -1,15 +1,48 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { LiveKitRoom } from "@livekit/components-react";
 import { useLiveKitConnection } from "./hooks/useLiveKitConnection";
 import ScreenView from "./components/ScreenView";
+import type { CommandKind, CommandPayloadMap } from "@/lib/realtime-protocol";
 
-export default function SimulatorViewer({ udid, userId, isStreaming, isActive = true, onStats, onClose, simulatorName }: { udid: string | null; userId: string; isStreaming: boolean; isActive?: boolean; onStats?: (stats: import("./hooks/useVideoStats").VideoStats | null) => void; onClose?: () => void; simulatorName?: string | null }) {
+type SimulatorViewerProps = {
+  udid: string | null;
+  userId: string;
+  isStreaming: boolean;
+  isActive?: boolean;
+  onStats?: (stats: import("./hooks/useVideoStats").VideoStats | null) => void;
+  onClose?: () => void;
+  simulatorName?: string | null;
+  sendCommand: <K extends CommandKind>(input: {
+    kind: K;
+    udid?: string | null;
+    payload: CommandPayloadMap[K];
+    waitForResult?: boolean;
+    resultTimeoutMs?: number;
+  }) => Promise<unknown>;
+};
+
+export default function SimulatorViewer({ udid, userId, isStreaming, isActive = true, onStats, onClose, simulatorName, sendCommand }: SimulatorViewerProps) {
   const [retryKey, setRetryKey] = useState(0);
-  const { connection, error } = useLiveKitConnection(udid, userId, retryKey);
+  const shouldConnect = Boolean(udid && isStreaming);
+  const shouldConnectRef = useRef(shouldConnect);
+  shouldConnectRef.current = shouldConnect;
+
+  const { connection, error } = useLiveKitConnection(udid, userId, shouldConnect, retryKey);
+
+  useEffect(() => {
+    if (!shouldConnect) {
+      setRetryKey(0);
+    }
+  }, [shouldConnect]);
+
   const handleDisconnected = useCallback(() => {
-    setTimeout(() => setRetryKey(k => k + 1), 2000);
+    if (!shouldConnectRef.current) return;
+    setTimeout(() => {
+      if (!shouldConnectRef.current) return;
+      setRetryKey(k => k + 1);
+    }, 2000);
   }, []);
 
   if (!udid) {
@@ -55,7 +88,14 @@ export default function SimulatorViewer({ udid, userId, isStreaming, isActive = 
         </button>
       )}
       <div className="flex-1 relative overflow-hidden">
-      {error ? (
+      {!isStreaming ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center max-w-sm mx-auto">
+          <p style={{ color: "var(--text)" }} className="text-sm font-medium">Stream offline</p>
+          <p style={{ color: "var(--text-3)" }} className="text-xs">
+            Start the stream from the simulator list to watch {simulatorName ?? "this simulator"}.
+          </p>
+        </div>
+      ) : error ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center max-w-sm mx-auto">
           <p style={{ color: "var(--error-text)" }} className="text-sm font-medium">Failed to connect</p>
           <p style={{ color: "var(--text-3)" }} className="text-xs font-mono break-all">{error}</p>
@@ -69,13 +109,13 @@ export default function SimulatorViewer({ udid, userId, isStreaming, isActive = 
           key={connection.token}
           token={connection.token}
           serverUrl={connection.url}
-          connect={true}
+          connect={shouldConnect}
           onDisconnected={handleDisconnected}
           onError={() => {}}
           options={{ adaptiveStream: false }}
           className="absolute inset-0"
         >
-          <ScreenView udid={udid} onStats={onStats} isActive={isActive} />
+          <ScreenView udid={udid} onStats={onStats} isActive={isActive} sendCommand={sendCommand} />
         </LiveKitRoom>
       )}
       </div>

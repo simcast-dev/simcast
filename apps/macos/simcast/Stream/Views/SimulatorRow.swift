@@ -11,6 +11,7 @@ struct SimulatorRow: View {
     var isCapturingThis: Bool { session != nil }
     var isConnecting: Bool { isCapturingThis && !(session?.isConnected ?? false) }
     var isStreaming: Bool { isCapturingThis && (session?.isConnected ?? false) }
+    var isRecording: Bool { session?.isRecording ?? false }
 
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
@@ -30,6 +31,11 @@ struct SimulatorRow: View {
                             .transition(.opacity.combined(with: .move(edge: .leading)))
                     } else if isConnecting {
                         ConnectingBadge()
+                            .transition(.opacity.combined(with: .move(edge: .leading)))
+                    }
+
+                    if isRecording {
+                        RecordingBadge()
                             .transition(.opacity.combined(with: .move(edge: .leading)))
                     }
                 }
@@ -112,5 +118,17 @@ struct SimulatorRow: View {
         .frame(maxWidth: .infinity)
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isCapturingThis)
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isConnecting)
+    }
+}
+
+private struct RecordingBadge: View {
+    var body: some View {
+        Label("REC", systemImage: "record.circle.fill")
+            .font(.caption2)
+            .fontWeight(.bold)
+            .foregroundStyle(.red)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.red.opacity(0.10), in: Capsule())
     }
 }

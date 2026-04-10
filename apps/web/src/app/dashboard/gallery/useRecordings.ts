@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { logDebug, logDebugError } from "@/lib/debug";
 import { shouldReconnectForStatus, type ChannelHealth } from "@/lib/realtime";
 
+export type RecordingStatus = "pending" | "ready" | "failed";
 
 export type Recording = {
   id: string;
@@ -16,8 +17,44 @@ export type Recording = {
   width: number | null;
   height: number | null;
   created_at: string;
+  status: RecordingStatus;
+  error_message: string | null;
   signedUrl?: string;
 };
+
+function normalizeRecording(item: Partial<Recording> & Pick<Recording, "id" | "storage_path" | "created_at">): Recording {
+  return {
+    id: item.id,
+    storage_path: item.storage_path,
+    simulator_name: item.simulator_name ?? null,
+    simulator_udid: item.simulator_udid ?? null,
+    duration_seconds: item.duration_seconds ?? 0,
+    file_size_bytes: item.file_size_bytes ?? 0,
+    width: item.width ?? null,
+    height: item.height ?? null,
+    created_at: item.created_at,
+    status: item.status ?? "ready",
+    error_message: item.error_message ?? null,
+  };
+}
+
+function mergeById(items: Recording[], item: Recording) {
+  const next = new Map(items.map((existing) => [existing.id, existing]));
+  next.set(item.id, item);
+  return Array.from(next.values()).sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+async function withSignedUrl(supabase: ReturnType<typeof createClient>, recording: Recording): Promise<Recording> {
+  if (recording.status !== "ready") {
+    return { ...recording, signedUrl: undefined };
+  }
+
+  const { data } = await supabase.storage
+    .from("recordings")
+    .createSignedUrl(recording.storage_path, 3600);
+
+  return { ...recording, signedUrl: data?.signedUrl };
+}
 
 export function useRecordings(userId: string, onNewItem?: (item: Recording) => void, channelHealth?: ChannelHealth) {
   const [recordings, setRecordings] = useState<Recording[]>([]);
@@ -43,19 +80,11 @@ export function useRecordings(userId: string, onNewItem?: (item: Recording) => v
     }
 
     if (data) {
-      const withUrls = await Promise.all(
-        data.map(async (r: Recording) => {
-          const { data: urlData } = await supabase.storage
-            .from("recordings")
-            .createSignedUrl(r.storage_path, 3600);
-          return { ...r, signedUrl: urlData?.signedUrl };
-        })
-      );
-
+      const withUrls = await Promise.all(data.map((item) => withSignedUrl(supabase, normalizeRecording(item as Recording))));
       if (offset === 0) {
         setRecordings(withUrls);
       } else {
-        setRecordings(prev => [...prev, ...withUrls]);
+        setRecordings((prev) => [...prev, ...withUrls]);
       }
       setHasMore(data.length === PAGE_SIZE);
     }
@@ -63,23 +92,39 @@ export function useRecordings(userId: string, onNewItem?: (item: Recording) => v
   }, [userId]);
 
   useEffect(() => {
-    fetchRecordings();
+    let cancelled = false;
+    void fetchRecordings();
 
     const supabase = createClient();
     const channel = supabase.channel("recordings-realtime");
     channelHealth?.register(channel);
-    channel.on(
+    channel
+      .on(
         "postgres_changes" as never,
         { event: "INSERT", schema: "public", table: "recordings", filter: `user_id=eq.${userId}` },
         async (payload: { new: Recording }) => {
-          const row = payload.new;
-          const { data: urlData } = await supabase.storage
-            .from("recordings")
-            .createSignedUrl(row.storage_path, 3600);
-          const item = { ...row, signedUrl: urlData?.signedUrl };
-          setRecordings(prev => [item, ...prev]);
-          onNewItem?.(item);
-        }
+          const item = await withSignedUrl(supabase, normalizeRecording(payload.new));
+          if (cancelled) return;
+          setRecordings((prev) => mergeById(prev, item));
+          if (item.status === "ready") {
+            onNewItem?.(item);
+          }
+        },
+      )
+      .on(
+        "postgres_changes" as never,
+        { event: "UPDATE", schema: "public", table: "recordings", filter: `user_id=eq.${userId}` },
+        async (payload: { new: Recording }) => {
+          const item = await withSignedUrl(supabase, normalizeRecording(payload.new));
+          if (cancelled) return;
+          setRecordings((prev) => {
+            const existing = prev.find((entry) => entry.id === item.id);
+            if (item.status === "ready" && existing?.status !== "ready") {
+              onNewItem?.(item);
+            }
+            return mergeById(prev, item);
+          });
+        },
       )
       .subscribe((status, err) => {
         if (err) {
@@ -111,35 +156,42 @@ export function useRecordings(userId: string, onNewItem?: (item: Recording) => v
       });
 
     return () => {
+      cancelled = true;
       channelHealth?.unregister(channel);
+      void channel.unsubscribe();
       supabase.removeChannel(channel);
     };
-  }, [fetchRecordings, userId, channelHealth?.reconnectKey]);
+  }, [fetchRecordings, onNewItem, userId, channelHealth?.reconnectKey]);
 
   const loadMore = useCallback(() => {
-    fetchRecordings(recordings.length);
+    void fetchRecordings(recordings.length);
   }, [fetchRecordings, recordings.length]);
 
-  const deleteRecording = useCallback(async (id: string, storagePath: string) => {
+  const deleteRecording = useCallback(async (id: string, storagePath: string, status: RecordingStatus) => {
     const supabase = createClient();
-    await supabase.storage.from("recordings").remove([storagePath]);
+    if (status === "ready") {
+      await supabase.storage.from("recordings").remove([storagePath]);
+    }
     await supabase.from("recordings").delete().eq("id", id);
-    setRecordings(prev => prev.filter(r => r.id !== id));
+    setRecordings((prev) => prev.filter((item) => item.id !== id));
   }, []);
 
-  const deleteMultiple = useCallback(async (items: Array<{ id: string; storagePath: string }>) => {
+  const deleteMultiple = useCallback(async (items: Array<{ id: string; storagePath: string; status: RecordingStatus }>) => {
     const supabase = createClient();
-    const paths = items.map(i => i.storagePath);
-    const ids = items.map(i => i.id);
-    await supabase.storage.from("recordings").remove(paths);
+    const readyPaths = items.filter((item) => item.status === "ready").map((item) => item.storagePath);
+    const ids = items.map((item) => item.id);
+    if (readyPaths.length > 0) {
+      await supabase.storage.from("recordings").remove(readyPaths);
+    }
     await supabase.from("recordings").delete().in("id", ids);
-    setRecordings(prev => prev.filter(r => !ids.includes(r.id)));
+    setRecordings((prev) => prev.filter((item) => !ids.includes(item.id)));
   }, []);
 
   const refresh = useCallback(() => {
     setLoading(true);
+    setError(null);
     setRecordings([]);
-    fetchRecordings();
+    void fetchRecordings();
   }, [fetchRecordings]);
 
   return { recordings, loading, error, hasMore, loadMore, deleteRecording, deleteMultiple, refresh };

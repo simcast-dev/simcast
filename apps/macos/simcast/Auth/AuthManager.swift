@@ -4,23 +4,45 @@ import Supabase
 
 @Observable
 final class AuthManager {
-    enum Status { case unconfigured, unauthenticated, authenticated }
+    enum Status { case launching, unconfigured, unauthenticated, authenticated }
 
     private(set) var status: Status
     private(set) var currentUserEmail: String?
     private(set) var userId: String?
     private(set) var supabase: SupabaseClient?
+    private(set) var launchMessage: String
 
     init() {
+        status = .launching
         if let urlString = KeychainService.read(key: "supabase_url"),
            let url = URL(string: urlString),
            let key = KeychainService.read(key: "supabase_anon_key"),
            !key.isEmpty {
             supabase = SupabaseClient(supabaseURL: url, supabaseKey: key)
-            status = .unauthenticated
+            launchMessage = "Restoring your saved session."
         } else {
             supabase = nil
+            launchMessage = "Checking your SimCast setup."
+        }
+    }
+
+    func bootstrap() async {
+        guard status == .launching else { return }
+
+        guard let supabase else {
             status = .unconfigured
+            return
+        }
+
+        do {
+            let session = try await supabase.auth.session
+            currentUserEmail = session.user.email
+            userId = session.user.id.uuidString.lowercased()
+            status = .authenticated
+        } catch {
+            currentUserEmail = nil
+            userId = nil
+            status = .unauthenticated
         }
     }
 
@@ -34,6 +56,7 @@ final class AuthManager {
         KeychainService.save(key: "supabase_url", value: url)
         KeychainService.save(key: "supabase_anon_key", value: anonKey)
         supabase = SupabaseClient(supabaseURL: parsedURL, supabaseKey: anonKey)
+        launchMessage = "Checking your SimCast setup."
         status = .unauthenticated
     }
 
@@ -52,6 +75,7 @@ final class AuthManager {
         if eraseConfiguration {
             KeychainService.deleteAll()
             supabase = nil
+            launchMessage = "Checking your SimCast setup."
             status = .unconfigured
         } else {
             status = .unauthenticated
@@ -63,6 +87,7 @@ final class AuthManager {
         supabase = nil
         currentUserEmail = nil
         userId = nil
+        launchMessage = "Checking your SimCast setup."
         status = .unconfigured
     }
 

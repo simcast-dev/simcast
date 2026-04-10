@@ -1,7 +1,7 @@
 import CoreMedia
 import LiveKit
-import Supabase
 import Observation
+import Supabase
 
 @Observable
 @MainActor
@@ -9,19 +9,6 @@ final class LiveKitProvider: StreamingProvider {
 
     private(set) var isConnected = false
     var onDisconnected: (() -> Void)?
-
-    var onTapReceived: ((Double, Double, Double?) -> Void)?
-    var onLabelTapReceived: ((String) -> Void)?
-    var onSwipeReceived: ((Double, Double, Double, Double) -> Void)?
-    var onScreenshotRequested: (() async -> Void)?
-    var onButtonReceived: ((String) -> Void)?
-    var onGestureReceived: ((String) -> Void)?
-    var onTextReceived: ((String) -> Void)?
-    var onPushReceived: ((String, String?, String?, String?, Int?, String?, String?, Bool) -> Void)?
-    var onAppListRequested: (() async -> Void)?
-    var onStartRecordingRequested: (() -> Void)?
-    var onStopRecordingRequested: (() async -> Void)?
-    var onOpenURLReceived: ((String) -> Void)?
 
     private let supabase: SupabaseClient
     private let logger: AppLogger
@@ -34,8 +21,6 @@ final class LiveKitProvider: StreamingProvider {
         self.logger = logger
     }
 
-    // MARK: - StreamingProvider
-
     func prepare(size: CGSize) {
         liveKitReceiver = LiveKitReceiver(dimensions: Dimensions(
             width: Int32(size.width),
@@ -43,15 +28,12 @@ final class LiveKitProvider: StreamingProvider {
         ))
     }
 
-    func connect(roomName: String) async throws {
+    func connect(udid: String) async throws {
         guard let lkReceiver = liveKitReceiver else { return }
-        self.udid = roomName
-        logger.log(.liveKit, "fetching token · room=\(roomName.shortId())", udid: roomName)
-        let (url, token) = try await fetchToken(roomName: roomName)
+        self.udid = udid
+        logger.log(.liveKit, "fetching token · room=\(udid.shortId())", udid: udid)
+        let (url, token) = try await fetchToken(udid: udid)
         let room = Room()
-        // Fixed 8Mbps H.264: high bitrate prioritizes visual quality for a dev tool;
-        // simulcast disabled because there's typically one viewer; H.264 for broad
-        // browser compatibility.
         let roomOptions = RoomOptions(
             defaultVideoPublishOptions: VideoPublishOptions(
                 screenShareEncoding: VideoEncoding(maxBitrate: 8_000_000, maxFps: 60),
@@ -64,7 +46,7 @@ final class LiveKitProvider: StreamingProvider {
         self.room = room
         do {
             try await room.connect(url: url, token: token, roomOptions: roomOptions)
-            logger.log(.liveKit, "connected · room=\(roomName.shortId())", udid: roomName)
+            logger.log(.liveKit, "connected · room=\(udid.shortId())", udid: udid)
             try await room.localParticipant.publish(
                 videoTrack: lkReceiver.track,
                 options: VideoPublishOptions(
@@ -73,12 +55,12 @@ final class LiveKitProvider: StreamingProvider {
                     preferredCodec: .h264
                 )
             )
-            logger.log(.liveKit, "track published", udid: roomName)
+            logger.log(.liveKit, "track published", udid: udid)
             isConnected = true
         } catch {
             self.room = nil
             await room.disconnect()
-            logger.log(.error, "connect failed · \(error.localizedDescription)", udid: roomName)
+            logger.log(.error, "connect failed · \(error.localizedDescription)", udid: udid)
             throw error
         }
     }
@@ -91,72 +73,150 @@ final class LiveKitProvider: StreamingProvider {
         await r?.disconnect()
     }
 
-    // MARK: - VideoFrameReceiver
-
     nonisolated func sckManager(didOutput sampleBuffer: CMSampleBuffer) {
         liveKitReceiver?.sckManager(didOutput: sampleBuffer)
     }
 
-    // MARK: - Private
+    func uploadScreenshot(_ data: Data, simulatorName: String, simulatorUdid: String) async throws {
+        let userId = try await supabase.auth.session.user.id.uuidString.lowercased()
+        let path = "\(userId)/\(UUID().uuidString).png"
+        let usesLegacySchema: Bool
 
-    func publishAppList(_ apps: [(bundleId: String, name: String)]) async {
-        let items = apps.map { ["bundleId": $0.bundleId, "name": $0.name] }
-        guard let data = try? JSONSerialization.data(withJSONObject: items) else { return }
-        try? await room?.localParticipant.publish(data: data, options: DataPublishOptions(topic: "simulator_app_list_result", reliable: true))
-    }
-
-    func uploadAndPublishScreenshot(_ data: Data, simulatorName: String, simulatorUdid: String) async {
         do {
-            let userId = try await supabase.auth.session.user.id.uuidString.lowercased()
-            let path = "\(userId)/\(UUID().uuidString).png"
-            try await supabase.storage.from("screenshots").upload(path: path, file: data, options: FileOptions(contentType: "image/png", upsert: false))
-
             try await supabase.from("screenshots").insert(ScreenshotRecord(
                 user_id: userId,
                 storage_path: path,
                 simulator_name: simulatorName,
-                simulator_udid: simulatorUdid
+                simulator_udid: simulatorUdid,
+                status: "pending",
+                error_message: nil
             )).execute()
-
-            let signedURL = try await supabase.storage.from("screenshots").createSignedURL(path: path, expiresIn: 300)
-            let payload = Data(signedURL.absoluteString.utf8)
-            try await room?.localParticipant.publish(data: payload, options: DataPublishOptions(topic: "simulator_screenshot_result", reliable: true))
+            usesLegacySchema = false
         } catch {
-            logger.log(.error, "screenshot upload failed · \(error.localizedDescription)", udid: simulatorUdid)
-            print("[screenshot] upload failed: \(error)")
+            guard Self.isMissingMediaStatusSchema(error) else {
+                throw error
+            }
+            usesLegacySchema = true
+            logger.log(.stream, "screenshots table is using legacy schema · continuing without placeholder status", udid: simulatorUdid)
+        }
+
+        if usesLegacySchema {
+            do {
+                try await supabase.storage
+                    .from("screenshots")
+                    .upload(path: path, file: data, options: FileOptions(contentType: "image/png", upsert: false))
+
+                try await supabase.from("screenshots").insert(LegacyScreenshotRecord(
+                    user_id: userId,
+                    storage_path: path,
+                    simulator_name: simulatorName,
+                    simulator_udid: simulatorUdid
+                )).execute()
+            } catch {
+                logger.log(.error, "legacy screenshot upload failed · \(error.localizedDescription)", udid: simulatorUdid)
+                throw error
+            }
+            return
+        }
+
+        Task { @MainActor [supabase, logger] in
+            do {
+                try await supabase.storage
+                    .from("screenshots")
+                    .upload(path: path, file: data, options: FileOptions(contentType: "image/png", upsert: false))
+
+                try await supabase
+                    .from("screenshots")
+                    .update(MediaStatusUpdate(status: "ready", error_message: nil))
+                    .eq("storage_path", value: path)
+                    .execute()
+            } catch {
+                try? await supabase
+                    .from("screenshots")
+                    .update(MediaStatusUpdate(status: "failed", error_message: error.localizedDescription))
+                    .eq("storage_path", value: path)
+                    .execute()
+                logger.log(.error, "screenshot upload failed · \(error.localizedDescription)", udid: simulatorUdid)
+            }
         }
     }
 
-    func uploadAndPublishRecording(_ fileURL: URL, simulatorName: String, simulatorUdid: String, duration: Double) async {
-        do {
-            let userId = try await supabase.auth.session.user.id.uuidString.lowercased()
-            let fileData = try Data(contentsOf: fileURL)
-            let path = "\(userId)/\(UUID().uuidString).mp4"
-            try await supabase.storage.from("recordings").upload(path: path, file: fileData, options: FileOptions(contentType: "video/mp4", upsert: false))
+    func uploadRecording(_ fileURL: URL, simulatorName: String, simulatorUdid: String, duration: Double) async throws {
+        let userId = try await supabase.auth.session.user.id.uuidString.lowercased()
+        let fileData = try Data(contentsOf: fileURL)
+        let path = "\(userId)/\(UUID().uuidString).mp4"
+        let usesLegacySchema: Bool
 
+        do {
             try await supabase.from("recordings").insert(RecordingRecord(
                 user_id: userId,
                 storage_path: path,
                 simulator_name: simulatorName,
                 simulator_udid: simulatorUdid,
                 duration_seconds: duration,
-                file_size_bytes: fileData.count
+                file_size_bytes: fileData.count,
+                status: "pending",
+                error_message: nil
             )).execute()
-
-            let signedURL = try await supabase.storage.from("recordings").createSignedURL(path: path, expiresIn: 300)
-            let payload = Data(signedURL.absoluteString.utf8)
-            try await room?.localParticipant.publish(data: payload, options: DataPublishOptions(topic: "simulator_recording_result", reliable: true))
-
-            try? FileManager.default.removeItem(at: fileURL)
+            usesLegacySchema = false
         } catch {
-            logger.log(.error, "recording upload failed · \(error.localizedDescription)", udid: simulatorUdid)
+            guard Self.isMissingMediaStatusSchema(error) else {
+                throw error
+            }
+            usesLegacySchema = true
+            logger.log(.stream, "recordings table is using legacy schema · continuing without placeholder status", udid: simulatorUdid)
+        }
+
+        if usesLegacySchema {
+            defer { try? FileManager.default.removeItem(at: fileURL) }
+
+            do {
+                try await supabase.storage
+                    .from("recordings")
+                    .upload(path: path, file: fileData, options: FileOptions(contentType: "video/mp4", upsert: false))
+
+                try await supabase.from("recordings").insert(LegacyRecordingRecord(
+                    user_id: userId,
+                    storage_path: path,
+                    simulator_name: simulatorName,
+                    simulator_udid: simulatorUdid,
+                    duration_seconds: duration,
+                    file_size_bytes: fileData.count
+                )).execute()
+            } catch {
+                logger.log(.error, "legacy recording upload failed · \(error.localizedDescription)", udid: simulatorUdid)
+                throw error
+            }
+            return
+        }
+
+        Task { @MainActor [supabase, logger] in
+            defer { try? FileManager.default.removeItem(at: fileURL) }
+
+            do {
+                try await supabase.storage
+                    .from("recordings")
+                    .upload(path: path, file: fileData, options: FileOptions(contentType: "video/mp4", upsert: false))
+
+                try await supabase
+                    .from("recordings")
+                    .update(MediaStatusUpdate(status: "ready", error_message: nil))
+                    .eq("storage_path", value: path)
+                    .execute()
+            } catch {
+                try? await supabase
+                    .from("recordings")
+                    .update(MediaStatusUpdate(status: "failed", error_message: error.localizedDescription))
+                    .eq("storage_path", value: path)
+                    .execute()
+                logger.log(.error, "recording upload failed · \(error.localizedDescription)", udid: simulatorUdid)
+            }
         }
     }
 
-    // Token generated server-side via Supabase Edge Function to ensure only
-    // authenticated users receive LiveKit access credentials.
-    private func fetchToken(roomName: String) async throws -> (url: String, token: String) {
+    private func fetchToken(udid: String) async throws -> (url: String, token: String) {
         struct Request: Encodable {
+            let udid: String
             let room_name: String
             let participant_identity: String
             let can_publish: Bool
@@ -165,15 +225,51 @@ final class LiveKitProvider: StreamingProvider {
             let token: String
             let livekit_url: String
         }
-        let session = try await supabase.auth.session
-        let response: TokenResponse = try await supabase.functions.invoke(
-            "livekit-token",
-            options: FunctionInvokeOptions(
-                headers: ["Authorization": "Bearer \(session.accessToken)"],
-                body: Request(room_name: roomName, participant_identity: "mac-publisher", can_publish: true)
+        func invokeTokenEndpoint(using accessToken: String) async throws -> TokenResponse {
+            let roomName = try await derivedRoomName(for: udid)
+            return try await supabase.functions.invoke(
+                "livekit-token",
+                options: FunctionInvokeOptions(
+                    headers: ["Authorization": "Bearer \(accessToken)"],
+                    body: Request(
+                        udid: udid,
+                        room_name: roomName,
+                        participant_identity: "mac-publisher",
+                        can_publish: true
+                    )
+                )
             )
+        }
+
+        do {
+            let session = try await supabase.auth.session
+            let response = try await invokeTokenEndpoint(using: session.accessToken)
+            return (response.livekit_url, response.token)
+        } catch let FunctionsError.httpError(code, _) where code == 401 {
+            logger.log(.liveKit, "token fetch returned 401 · refreshing auth session and retrying", udid: udid)
+            let refreshedSession = try await supabase.auth.refreshSession()
+            let response = try await invokeTokenEndpoint(using: refreshedSession.accessToken)
+            return (response.livekit_url, response.token)
+        } catch let FunctionsError.httpError(code, data) {
+            let details = String(data: data, encoding: .utf8) ?? "no response body"
+            logger.log(.error, "token fetch failed · status=\(code) · body=\(details)", udid: udid)
+            throw FunctionsError.httpError(code: code, data: data)
+        }
+    }
+
+    private func derivedRoomName(for udid: String) async throws -> String {
+        let session = try await supabase.auth.session
+        return "user:\(session.user.id.uuidString.lowercased()):sim:\(udid)"
+    }
+
+    private static func isMissingMediaStatusSchema(_ error: Error) -> Bool {
+        let message = error.localizedDescription.lowercased()
+        return (
+            message.contains("could not find the 'status' column") ||
+            message.contains("column \"status\" does not exist") ||
+            message.contains("could not find the 'error_message' column") ||
+            message.contains("column \"error_message\" does not exist")
         )
-        return (response.livekit_url, response.token)
     }
 }
 
@@ -182,6 +278,8 @@ private struct ScreenshotRecord: Encodable {
     let storage_path: String
     let simulator_name: String
     let simulator_udid: String
+    let status: String
+    let error_message: String?
 }
 
 private struct RecordingRecord: Encodable {
@@ -191,16 +289,30 @@ private struct RecordingRecord: Encodable {
     let simulator_udid: String
     let duration_seconds: Double
     let file_size_bytes: Int
+    let status: String
+    let error_message: String?
 }
 
-private struct OpenURLMessage: Decodable { let url: String }
+private struct MediaStatusUpdate: Encodable {
+    let status: String
+    let error_message: String?
+}
 
-private struct TapMessage: Decodable { let x: Double?; let y: Double?; let vw: Double?; let vh: Double?; let longPress: Bool?; let duration: Double?; let label: String? }
-private struct ButtonMessage: Decodable { let button: String }
-private struct GestureMessage: Decodable { let gesture: String }
-private struct SwipeMessage: Decodable { let startX: Double; let startY: Double; let endX: Double; let endY: Double; let vw: Double; let vh: Double }
-private struct TextMessage: Decodable { let text: String }
-private struct PushMessage: Decodable { let bundleId: String; let title: String?; let subtitle: String?; let body: String?; let badge: Int?; let sound: String?; let category: String?; let contentAvailable: Bool? }
+private struct LegacyScreenshotRecord: Encodable {
+    let user_id: String
+    let storage_path: String
+    let simulator_name: String
+    let simulator_udid: String
+}
+
+private struct LegacyRecordingRecord: Encodable {
+    let user_id: String
+    let storage_path: String
+    let simulator_name: String
+    let simulator_udid: String
+    let duration_seconds: Double
+    let file_size_bytes: Int
+}
 
 extension LiveKitProvider: RoomDelegate {
     nonisolated func room(_ room: Room, didDisconnectWithError error: LiveKitError?) {
@@ -213,56 +325,6 @@ extension LiveKitProvider: RoomDelegate {
                 self.logger.log(.liveKit, "room disconnected", udid: self.udid)
             }
             self.onDisconnected?()
-        }
-    }
-
-    // Topics separate control messages by type, allowing independent decoding
-    // and handling of tap/gesture/text/button/screenshot/push commands.
-    nonisolated func room(_ room: Room, participant: RemoteParticipant?,
-                          didReceiveData data: Data, forTopic topic: String,
-                          encryptionType: EncryptionType) {
-        switch topic {
-        case "simulator_tap":
-            guard let msg = try? JSONDecoder().decode(TapMessage.self, from: data) else {
-                print("[tap] decode failed: \(String(data: data, encoding: .utf8) ?? "<binary>")")
-                return
-            }
-            if let label = msg.label {
-                Task { @MainActor in self.onLabelTapReceived?(label) }
-            } else if let x = msg.x, let y = msg.y {
-                let holdDuration = msg.longPress == true ? msg.duration : nil
-                Task { @MainActor in self.onTapReceived?(x, y, holdDuration) }
-            }
-        case "simulator_button":
-            guard let msg = try? JSONDecoder().decode(ButtonMessage.self, from: data) else { return }
-            Task { @MainActor in self.onButtonReceived?(msg.button) }
-        case "simulator_gesture":
-            guard let msg = try? JSONDecoder().decode(GestureMessage.self, from: data) else { return }
-            Task { @MainActor in self.onGestureReceived?(msg.gesture) }
-        case "simulator_swipe":
-            guard let msg = try? JSONDecoder().decode(SwipeMessage.self, from: data) else { return }
-            let startNX = msg.startX / msg.vw, startNY = msg.startY / msg.vh
-            let endNX = msg.endX / msg.vw, endNY = msg.endY / msg.vh
-            Task { @MainActor in self.onSwipeReceived?(startNX, startNY, endNX, endNY) }
-        case "simulator_screenshot":
-            Task { @MainActor in await self.onScreenshotRequested?() }
-        case "simulator_app_list_request":
-            Task { @MainActor in await self.onAppListRequested?() }
-        case "simulator_text":
-            guard let msg = try? JSONDecoder().decode(TextMessage.self, from: data) else { return }
-            Task { @MainActor in self.onTextReceived?(msg.text) }
-        case "simulator_push":
-            guard let msg = try? JSONDecoder().decode(PushMessage.self, from: data) else { return }
-            Task { @MainActor in self.onPushReceived?(msg.bundleId, msg.title, msg.subtitle, msg.body, msg.badge, msg.sound, msg.category, msg.contentAvailable == true) }
-        case "simulator_start_recording":
-            Task { @MainActor in self.onStartRecordingRequested?() }
-        case "simulator_stop_recording":
-            Task { @MainActor in await self.onStopRecordingRequested?() }
-        case "simulator_open_url":
-            guard let msg = try? JSONDecoder().decode(OpenURLMessage.self, from: data) else { return }
-            Task { @MainActor in self.onOpenURLReceived?(msg.url) }
-        default:
-            break
         }
     }
 }

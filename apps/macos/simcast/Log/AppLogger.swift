@@ -15,7 +15,7 @@ final class AppLogger {
     var lastEntry: LogEntry? { entries.last }
 
     func log(_ category: LogCategory, _ message: String, udid: String? = nil) {
-        let entry = LogEntry(category: category, message: message)
+        let entry = LogEntry(category: category, message: message, udid: udid)
         Task {
             let updated = await writer.append(entry)
             entries = updated

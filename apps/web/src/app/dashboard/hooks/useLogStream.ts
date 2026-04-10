@@ -9,6 +9,7 @@ export type LogEntry = {
   category: LogCategory;
   message: string;
   timestamp: string;
+  udid?: string | null;
 };
 
 const LOG_CAP = 500;
@@ -19,12 +20,13 @@ export function useLogStream() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [errorCount, setErrorCount] = useState(0);
 
-  const addLog = useCallback((payload: { category: string; message: string; timestamp: string }) => {
+  const addLog = useCallback((payload: { category: string; message: string; timestamp: string; udid?: string | null }) => {
     const entry: LogEntry = {
       id: `log-${++logCounter}`,
       category: payload.category as LogCategory,
       message: payload.message,
       timestamp: payload.timestamp,
+      udid: payload.udid ?? null,
     };
     setLogs(prev => {
       const next = [...prev, entry];
