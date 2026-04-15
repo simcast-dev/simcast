@@ -66,6 +66,12 @@
   --streaming-glow: #4ade80;
   --streaming-glow-bg: rgba(74, 222, 128, 0.1);
   --streaming-glow-border: rgba(74, 222, 128, 0.25);
+  --gesture-preview-line-outer: rgba(10, 8, 24, 0.82);
+  --gesture-preview-line-inner: rgba(255, 255, 255, 0.92);
+  --gesture-preview-start-dot-fill: rgba(255, 255, 255, 0.98);
+  --gesture-preview-start-dot-ring: rgba(10, 8, 24, 0.88);
+  --gesture-preview-end-dot-fill: var(--emerald);
+  --gesture-preview-end-dot-ring: rgba(10, 8, 24, 0.88);
   --divider: rgba(255, 255, 255, 0.07);
   --skeleton-bg: rgba(124, 58, 237, 0.04);
   --skeleton-pulse: rgba(124, 58, 237, 0.08);
@@ -160,6 +166,12 @@
   --streaming-glow: #059669;
   --streaming-glow-bg: rgba(5, 150, 105, 0.08);
   --streaming-glow-border: rgba(5, 150, 105, 0.2);
+  --gesture-preview-line-outer: rgba(26, 22, 51, 0.8);
+  --gesture-preview-line-inner: rgba(255, 255, 255, 0.96);
+  --gesture-preview-start-dot-fill: rgba(255, 255, 255, 0.98);
+  --gesture-preview-start-dot-ring: rgba(26, 22, 51, 0.8);
+  --gesture-preview-end-dot-fill: var(--emerald);
+  --gesture-preview-end-dot-ring: rgba(26, 22, 51, 0.8);
   --divider: rgba(99, 90, 160, 0.12);
   --skeleton-bg: rgba(109, 40, 217, 0.04);
   --skeleton-pulse: rgba(109, 40, 217, 0.08);

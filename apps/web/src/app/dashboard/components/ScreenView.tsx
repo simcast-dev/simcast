@@ -745,22 +745,42 @@ export default function ScreenView({ udid, onStats, isActive = true, sendCommand
               <line
                 x1={swipePreview.sx} y1={swipePreview.sy}
                 x2={swipePreview.ex} y2={swipePreview.ey}
-                stroke="rgba(255,255,255,0.7)"
-                strokeWidth="2"
+                stroke="var(--gesture-preview-line-outer)"
+                strokeWidth="6"
+                strokeLinecap="round"
+                filter="url(#swipe-glow)"
+              />
+              <line
+                x1={swipePreview.sx} y1={swipePreview.sy}
+                x2={swipePreview.ex} y2={swipePreview.ey}
+                stroke="var(--gesture-preview-line-inner)"
+                strokeWidth="2.5"
                 strokeDasharray="8 4"
                 strokeLinecap="round"
                 filter="url(#swipe-glow)"
               />
               <circle
                 cx={swipePreview.sx} cy={swipePreview.sy}
-                r="5"
-                fill="rgba(255,255,255,0.9)"
+                r="6.5"
+                fill="var(--gesture-preview-start-dot-ring)"
+                filter="url(#swipe-glow)"
+              />
+              <circle
+                cx={swipePreview.sx} cy={swipePreview.sy}
+                r="4"
+                fill="var(--gesture-preview-start-dot-fill)"
                 filter="url(#swipe-glow)"
               />
               <circle
                 cx={swipePreview.ex} cy={swipePreview.ey}
-                r="5"
-                fill="rgba(16,185,129,0.95)"
+                r="6.5"
+                fill="var(--gesture-preview-end-dot-ring)"
+                filter="url(#swipe-glow)"
+              />
+              <circle
+                cx={swipePreview.ex} cy={swipePreview.ey}
+                r="4"
+                fill="var(--gesture-preview-end-dot-fill)"
                 filter="url(#swipe-glow)"
               />
             </svg>
