@@ -29,7 +29,7 @@ The product is intentionally **realtime-first**:
 - video travels over **LiveKit**
 - screenshots and recordings are the only operational data persisted in **Supabase Postgres + Storage**
 
-<h3 align="center"><a href="https://vimeo.com/1178984480">▶ Watch the demo video</a> · <a href="https://simcast.dev">simcast.dev</a></h3>
+<h3 align="center"><a href="https://vimeo.com/manage/videos/1184608499">▶ Watch the demo video</a> · <a href="https://simcast.dev">simcast.dev</a></h3>
 
 ## Features
 
