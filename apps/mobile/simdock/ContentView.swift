@@ -9,16 +9,16 @@ import SwiftUI
 
 struct ContentView: View {
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
-        }
-        .padding()
+        SimDockScreen()
     }
 }
 
-#Preview {
+#Preview("Narrow iPad Window") {
     ContentView()
+        .frame(width: 430, height: 900)
+}
+
+#Preview("Wide iPad Window") {
+    ContentView()
+        .frame(width: 760, height: 900)
 }
